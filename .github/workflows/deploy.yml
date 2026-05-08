@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # تحديث من v3 إلى v4
 
       - name: Set up Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4 # تحديث من v3 إلى v4
         with:
           node-version: 18
           cache: 'npm'
@@ -29,9 +29,7 @@ jobs:
         run: npm run build
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: ./dist
+        uses: actions/upload-pages-artifact@v3 # تحديث من v2 إلى v3 ليتوافق مع v4
 
   deploy:
     environment:
@@ -42,4 +40,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4 # تحديث من v2 إلى v4
