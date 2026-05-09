@@ -61,9 +61,9 @@ const FutureStore = () => {
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
 
-  // Product Creation State
+  // Product Creation State (أضيف حقل shippingFee هنا)
   const [newProduct, setNewProduct] = useState({ 
-    name: '', price: '', image: '', category: 'Networking', desc: '', 
+    name: '', price: '', shippingFee: '', image: '', category: 'Networking', desc: '', 
     paymentMethods: { kuraimi: true, qutaibi: false, paypal: false },
     paymentDetails: { kuraimi: '', qutaibi: '', paypal: '' } 
   });
@@ -157,11 +157,12 @@ const FutureStore = () => {
       await addDoc(collection(db, "products"), { 
         ...newProduct, 
         price: Number(newProduct.price), 
+        shippingFee: Number(newProduct.shippingFee || 0), // حفظ رسوم التوصيل
         sellerId: user.uid, 
         sellerName: user.displayName, 
         sellerPhoto: user.photoURL, 
-        avgRating: 0, // تقييم افتراضي 0
-        reviewCount: 0, // عدد التقييمات افتراضي 0
+        avgRating: 0, 
+        reviewCount: 0, 
         createdAt: Date.now() 
       });
       showToast("تم نشر المنتج بنجاح ✅");
@@ -231,12 +232,28 @@ const FutureStore = () => {
     if(!user) return handleLogin();
     if(user.uid === product.sellerId) return showToast("لا يمكنك مراسلة نفسك", "info");
     const chatId = user.uid < product.sellerId ? `${user.uid}_${product.sellerId}` : `${product.sellerId}_${user.uid}`;
-    await setDoc(doc(db, "chats", chatId), {
-        id: chatId, participants: [user.uid, product.sellerId], productName: product.name,
-        lastMsg: "بدأ المحادثة...", time: Date.now(),
-        users: { [user.uid]: { name: user.displayName, photo: user.photoURL }, [product.sellerId]: { name: product.sellerName, photo: product.sellerPhoto } }
-    }, { merge: true });
-    setChatInfo({ id: chatId, productName: product.name, sellerName: info.name, sellerPhoto: info.photo });
+    
+    // جلب معلومات الطرف الآخر بدقة
+    const chatData = {
+        id: chatId, 
+        participants: [user.uid, product.sellerId], 
+        productName: product.name,
+        lastMsg: "بدأ المحادثة الاستفسارية...", 
+        time: Date.now(),
+        users: { 
+            [user.uid]: { name: user.displayName, photo: user.photoURL }, 
+            [product.sellerId]: { name: product.sellerName, photo: product.sellerPhoto } 
+        }
+    };
+
+    await setDoc(doc(db, "chats", chatId), chatData, { merge: true });
+    
+    setChatInfo({ 
+        id: chatId, 
+        productName: product.name, 
+        sellerName: product.sellerName, 
+        sellerPhoto: product.sellerPhoto 
+    });
     setView('chat');
     setSelectedProduct(null);
   };
@@ -251,7 +268,6 @@ const FutureStore = () => {
     } catch (e) { showToast("فشل إرسال الرسالة", "error"); }
   };
 
-  // وظيفة تحديث إحصائيات التقييم في وثيقة المنتج
   const updateProductRatingStats = async (productId, newReviews) => {
     const count = newReviews.length;
     const avg = count > 0 ? (newReviews.reduce((acc, curr) => acc + curr.rating, 0) / count) : 0;
@@ -280,10 +296,7 @@ const FutureStore = () => {
         updatedReviews = [...reviews, { rating: ratingInput }];
         showToast("شكراً لتقييمك");
       }
-      
-      // تحديث الإحصائيات في المنتج
       await updateProductRatingStats(selectedProduct.id, updatedReviews);
-      
       setReviewInput(""); setRatingInput(5); setIsEditingReview(null);
     } catch (e) { showToast("فشل العملية", "error"); }
   };
@@ -349,7 +362,8 @@ const FutureStore = () => {
   });
 
   const subTotal = cart.reduce((s, i) => s + (i.price * (i.qty || 1)), 0);
-  const shipping = subTotal > 100 ? 0 : 5.00;
+  // تعديل: حساب رسوم التوصيل بناءً على ما حدده الناشر لكل منتج
+  const shipping = cart.reduce((s, i) => s + (Number(i.shippingFee || 0) * (i.qty || 1)), 0);
   const total = subTotal + shipping;
 
   return (
@@ -468,7 +482,7 @@ const FutureStore = () => {
                                 <div className="flex-1 text-center sm:text-right">
                                     <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{item.category}</span>
                                     <h4 className="font-black text-lg mt-1 line-clamp-1">{item.name}</h4>
-                                    <p className="text-slate-400 text-xs font-bold">بواسطة: {item.sellerName}</p>
+                                    <p className="text-slate-400 text-xs font-bold">توصيل: ${item.shippingFee || 0}</p>
                                 </div>
                                 <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-100">
                                     <button onClick={() => updateCartQty(item.cartId, -1)} className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm hover:bg-red-50 hover:text-red-500 transition-colors"><Minus size={16}/></button>
@@ -489,7 +503,7 @@ const FutureStore = () => {
                             <h3 className="text-xl font-black mb-8 flex items-center gap-3 border-b border-white/10 pb-4"><Receipt size={24}/> ملخص الطلب</h3>
                             <div className="space-y-4 mb-8">
                                 <div className="flex justify-between font-bold text-slate-400"><span>المجموع الفرعي</span><span className="text-white">${subTotal.toFixed(2)}</span></div>
-                                <div className="flex justify-between font-bold text-slate-400"><span>رسوم التوصيل</span><span className="text-white">{shipping === 0 ? "مجاني" : `$${shipping.toFixed(2)}`}</span></div>
+                                <div className="flex justify-between font-bold text-slate-400"><span>رسوم التوصيل</span><span className="text-white">${shipping.toFixed(2)}</span></div>
                             </div>
                             <div className="flex justify-between items-end border-t border-white/10 pt-6 mb-8">
                                 <span className="font-black text-slate-400">الإجمالي النهائي</span>
@@ -510,8 +524,9 @@ const FutureStore = () => {
                <div className="flex justify-between items-center mb-10"><h2 className="text-3xl font-black">بيع منتج جديد</h2><button onClick={() => setView('home')} className="p-4 bg-slate-100 rounded-3xl"><X/></button></div>
                <form onSubmit={handleAddProduct} className="space-y-6">
                  <div className="space-y-2"><label className="text-xs font-black text-slate-400 mr-2 uppercase">اسم السلعة</label><input type="text" placeholder="مثلاً: Mikrotik hAP ac2" required className="w-full p-6 bg-slate-50 border border-transparent rounded-[2rem] outline-none font-bold" onChange={e => setNewProduct({...newProduct, name: e.target.value})} /></div>
-                 <div className="grid grid-cols-2 gap-4">
+                 <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2"><label className="text-xs font-black text-slate-400 mr-2 uppercase">السعر ($)</label><input type="number" placeholder="0.00" required className="w-full p-6 bg-slate-50 border border-transparent rounded-[2rem] outline-none font-bold" onChange={e => setNewProduct({...newProduct, price: e.target.value})} /></div>
+                    <div className="space-y-2"><label className="text-xs font-black text-slate-400 mr-2 uppercase">توصيل ($)</label><input type="number" placeholder="0.00" required className="w-full p-6 bg-slate-50 border border-transparent rounded-[2rem] outline-none font-bold" onChange={e => setNewProduct({...newProduct, shippingFee: e.target.value})} /></div>
                     <div className="space-y-2"><label className="text-xs font-black text-slate-400 mr-2 uppercase">التصنيف</label><select className="w-full p-6 bg-slate-50 border border-transparent rounded-[2rem] outline-none font-black" onChange={e => setNewProduct({...newProduct, category: e.target.value})}><option>Networking</option><option>Electronics</option><option>Gaming</option><option>Software</option></select></div>
                  </div>
                  <div className="space-y-2"><label className="text-xs font-black text-slate-400 mr-2 uppercase">رابط الصورة (URL)</label><input type="url" placeholder="https://..." required className="w-full p-6 bg-slate-50 border border-transparent rounded-[2rem] outline-none font-bold" onChange={e => setNewProduct({...newProduct, image: e.target.value})} /></div>
@@ -599,7 +614,7 @@ const FutureStore = () => {
                     <div className="aspect-square rounded-[4rem] overflow-hidden shadow-2xl border-4 border-white"><img src={selectedProduct.image} className="w-full h-full object-cover" alt="" /></div>
                     <div className="p-6 bg-slate-50 rounded-[3rem] border border-slate-100">
                         <div className="flex items-center gap-4 mb-4"><img src={selectedProduct.sellerPhoto} className="w-16 h-16 rounded-[1.5rem] object-cover" alt=""/><div className="text-right"><p className="text-[10px] text-slate-400 font-black uppercase">التاجر</p><h4 className="font-black text-lg">{selectedProduct.sellerName}</h4></div></div>
-                        <button onClick={() => startChat(selectedProduct)} className="w-full py-4 bg-white border border-slate-200 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-blue-600 hover:text-white transition-all shadow-sm"><MessageCircle size={18}/> مراسلة التاجر الآن</button>
+                        <button onClick={() => startChat(selectedProduct)} className="w-full py-4 bg-blue-600 text-white border border-transparent rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-slate-900 transition-all shadow-xl"><MessageCircle size={18}/> مراسلة التاجر الآن</button>
                     </div>
                 </div>
                 <div className="space-y-8 py-4">
@@ -615,9 +630,15 @@ const FutureStore = () => {
                             </span>
                         </div>
                     </div>
-                    <div className="flex items-baseline gap-2 justify-end"><span className="text-4xl font-black text-blue-600">${selectedProduct.price}</span></div>
+                    <div className="flex flex-col gap-1 items-end">
+                        <span className="text-4xl font-black text-blue-600">${selectedProduct.price}</span>
+                        <span className="text-xs font-bold text-slate-400">رسوم التوصيل: ${selectedProduct.shippingFee || 0}</span>
+                    </div>
                     <div className="space-y-4 text-right"><h4 className="font-black text-sm flex items-center gap-2 justify-end underline decoration-blue-500 underline-offset-4"><Info size={16}/> تفاصيل المنتج</h4><p className="text-slate-500 text-sm leading-relaxed font-bold">{selectedProduct.desc || "لا يوجد وصف تقني لهذا المنتج."}</p></div>
-                    <button onClick={() => addToCart(selectedProduct)} className="w-full bg-blue-600 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl shadow-blue-100 flex items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all"><ShoppingCart size={24}/> إضافة للسلة</button>
+                    <div className="grid grid-cols-2 gap-4">
+                         <button onClick={() => startChat(selectedProduct)} className="bg-slate-100 text-slate-900 py-7 rounded-[2.5rem] font-black text-sm flex items-center justify-center gap-2 hover:bg-blue-50 transition-all">تواصل مباشر</button>
+                         <button onClick={() => addToCart(selectedProduct)} className="bg-blue-600 text-white py-7 rounded-[2.5rem] font-black text-sm shadow-2xl shadow-blue-100 flex items-center justify-center gap-2 hover:scale-105 transition-all"><ShoppingCart size={20}/> للسلة</button>
+                    </div>
                 </div>
               </div>
 
