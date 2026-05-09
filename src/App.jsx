@@ -45,7 +45,6 @@ const FutureStore = () => {
   const [ratingInput, setRatingInput] = useState(5);
   const [editingReview, setEditingReview] = useState(null);
 
-  // حالات لتعديل الملف الشخصي
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
 
@@ -81,19 +80,16 @@ const FutureStore = () => {
     return () => { unsubProducts(); unsubAuth(); };
   }, []);
 
-  // تحديث بيانات الملف الشخصي في Firebase
-  const handleUpdateProfile = async () => {
-    if (!user) return;
-    try {
-      await updateDoc(doc(db, "users", user.uid), {
-        phone: editPhone,
-        address: editAddress
+  // جلب الرسائل عند فتح الشات
+  useEffect(() => {
+    if (chatInfo) {
+      const q = query(collection(db, `chats/${chatInfo.id}/messages`), orderBy("time", "asc"));
+      const unsubChat = onSnapshot(q, (s) => {
+        setMessages(s.docs.map(d => d.data()));
       });
-      showToast("تم تحديث معلوماتك بنجاح");
-    } catch (e) {
-      showToast("حدث خطأ أثناء التحديث");
+      return () => unsubChat();
     }
-  };
+  }, [chatInfo]);
 
   useEffect(() => {
     if (selectedProduct) {
@@ -102,17 +98,18 @@ const FutureStore = () => {
     }
   }, [selectedProduct]);
 
-  useEffect(() => {
-    if (chatInfo) {
-      const q = query(collection(db, `chats/${chatInfo.id}/messages`), orderBy("time", "asc"));
-      return onSnapshot(q, (s) => setMessages(s.docs.map(d => d.data())));
-    }
-  }, [chatInfo]);
-
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
   const handleLogin = async () => {
     try { await signInWithPopup(auth, provider); } catch (e) { showToast("فشل تسجيل الدخول"); }
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, "users", user.uid), { phone: editPhone, address: editAddress });
+      showToast("تم تحديث معلوماتك بنجاح");
+    } catch (e) { showToast("حدث خطأ أثناء التحديث"); }
   };
 
   const handleAddProduct = async (e) => {
@@ -177,11 +174,15 @@ const FutureStore = () => {
   };
 
   const sendMsg = async () => {
-    if(!msgInput || !chatInfo) return;
-    await addDoc(collection(db, `chats/${chatInfo.id}/messages`), {
-      text: msgInput, sender: user.uid, time: Date.now()
-    });
-    setMsgInput("");
+    if(!msgInput || !chatInfo || !user) return;
+    try {
+        await addDoc(collection(db, `chats/${chatInfo.id}/messages`), {
+            text: msgInput, 
+            sender: user.uid, 
+            time: Date.now()
+        });
+        setMsgInput("");
+    } catch (e) { showToast("فشل إرسال الرسالة"); }
   };
 
   const filteredProducts = products.filter(p => {
@@ -237,11 +238,8 @@ const FutureStore = () => {
                     <button onClick={() => { setView('profile'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
                        <User size={18} className="text-blue-600"/> <span className="text-xs font-bold">الملف الشخصي</span>
                     </button>
-                    <button onClick={() => { setView('cart'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
-                       <ShoppingBag size={18} className="text-blue-600"/> <span className="text-xs font-bold">سلة المشتريات</span>
-                    </button>
-                    <button onClick={() => { setView('admin'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
-                       <Plus size={18} className="text-blue-600"/> <span className="text-xs font-bold">إضافة منتج</span>
+                    <button onClick={() => { setView('home'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <Package size={18} className="text-blue-600"/> <span className="text-xs font-bold">المتجر</span>
                     </button>
                     <div className="h-px bg-slate-50 my-2" />
                     {user ? (
@@ -292,7 +290,6 @@ const FutureStore = () => {
           </motion.div>
         )}
 
-        {/* عرض الملف الشخصي مع البيانات الحقيقية من الصورة */}
         {view === 'profile' && (
           <motion.div key="profile" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-6 max-w-md mx-auto space-y-6">
             <div className="bg-white rounded-[3rem] shadow-xl border border-slate-100 overflow-hidden">
@@ -408,15 +405,15 @@ const FutureStore = () => {
               </div>
               <button onClick={() => setView('home')} className="p-3 bg-white/10 rounded-full"><X/></button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 flex flex-col">
               {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.sender === user.uid ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`p-5 rounded-3xl max-w-[80%] text-sm font-bold shadow-sm ${m.sender === user.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-slate-800 rounded-bl-none'}`}>{m.text}</div>
+                <div key={i} className={`flex ${m.sender === user?.uid ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`p-5 rounded-3xl max-w-[80%] text-sm font-bold shadow-sm ${m.sender === user?.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-slate-800 rounded-bl-none'}`}>{m.text}</div>
                 </div>
               ))}
             </div>
             <div className="p-6 bg-white border-t flex gap-3">
-              <input type="text" className="flex-1 bg-slate-100 p-5 rounded-2xl outline-none font-bold" placeholder="اكتب رسالتك..." value={msgInput} onChange={e => setMsgInput(e.target.value)} />
+              <input type="text" className="flex-1 bg-slate-100 p-5 rounded-2xl outline-none font-bold" placeholder="اكتب رسالتك..." value={msgInput} onChange={e => setMsgInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMsg()} />
               <button onClick={sendMsg} className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><Send size={20}/></button>
             </div>
           </motion.div>
@@ -465,7 +462,7 @@ const FutureStore = () => {
                       <div><p className="text-[10px] text-slate-400 font-bold uppercase">الناشر:</p><h4 className="font-black text-slate-800">{selectedProduct.sellerName}</h4></div>
                    </div>
                    {user?.uid !== selectedProduct.sellerId && (
-                     <button onClick={() => { setChatInfo({ id: `${user.uid}_${selectedProduct.sellerId}`, productName: selectedProduct.name, sellerName: selectedProduct.sellerName, sellerPhoto: selectedProduct.sellerPhoto }); setView('chat'); setSelectedProduct(null); }} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-colors shadow-lg"><MessageCircle size={22}/></button>
+                     <button onClick={() => { if(!user) return handleLogin(); setChatInfo({ id: `${user.uid}_${selectedProduct.sellerId}`, productName: selectedProduct.name, sellerName: selectedProduct.sellerName, sellerPhoto: selectedProduct.sellerPhoto }); setView('chat'); setSelectedProduct(null); }} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-colors shadow-lg"><MessageCircle size={22}/></button>
                    )}
                 </div>
 
