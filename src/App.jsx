@@ -35,6 +35,7 @@ const FutureStore = () => {
   const [activeCategory, setActiveCategory] = useState("الكل");
   const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showProfileMenu, setShowProfileMenu] = useState(false); // الحالة الجديدة للمنيو
   
   const [chatInfo, setChatInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -47,7 +48,7 @@ const FutureStore = () => {
   const [newProduct, setNewProduct] = useState({ 
     name: '', price: '', image: '', category: 'Networking', desc: '', 
     paymentMethods: { kuraimi: true, qutaibi: false, paypal: false },
-    paymentDetails: { kuraimi: '', qutaibi: '', paypal: '' } // تخزين أرقام الحسابات
+    paymentDetails: { kuraimi: '', qutaibi: '', paypal: '' } 
   });
 
   useEffect(() => {
@@ -197,16 +198,53 @@ const FutureStore = () => {
           </div>
           <span className="font-black text-xl tracking-tighter">FUTURE <span className="text-blue-600">ST</span></span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 relative">
           {user && <button onClick={() => setView('admin')} className="p-3 bg-slate-100 rounded-2xl text-slate-600 hover:bg-blue-600 hover:text-white transition-all"><Plus size={22}/></button>}
           <button onClick={() => setView('cart')} className="bg-slate-900 text-white px-5 py-3 rounded-2xl flex items-center gap-3 shadow-xl relative">
             <ShoppingBag size={20}/>
             <span className="font-black text-sm">${totalPrice}</span>
             {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-blue-500 w-5 h-5 rounded-full text-[10px] flex items-center justify-center border-2 border-white font-bold">{cart.length}</span>}
           </button>
-          <button onClick={() => setView('profile')} className="p-1 bg-white border border-slate-100 rounded-2xl overflow-hidden">
-            <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-10 h-10 rounded-xl object-cover" />
-          </button>
+          
+          {/* زر البروفايل مع القائمة المنسدلة */}
+          <div className="relative">
+            <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="p-1 bg-white border border-slate-100 rounded-2xl overflow-hidden active:scale-90 transition-transform">
+              <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-10 h-10 rounded-xl object-cover" />
+            </button>
+
+            <AnimatePresence>
+              {showProfileMenu && (
+                <>
+                  <div className="fixed inset-0 z-[160]" onClick={() => setShowProfileMenu(false)} />
+                  <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute left-0 mt-2 w-56 bg-white rounded-3xl shadow-2xl border border-slate-100 p-2 z-[170] overflow-hidden">
+                    <div className="p-4 border-b border-slate-50 mb-2">
+                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1">مرحباً بك</p>
+                       <p className="text-xs font-black truncate">{user?.displayName || 'زائر جديد'}</p>
+                    </div>
+                    <button onClick={() => { setView('profile'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <User size={18} className="text-blue-600"/> <span className="text-xs font-bold">الملف الشخصي</span>
+                    </button>
+                    <button onClick={() => { setView('cart'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <ShoppingBag size={18} className="text-blue-600"/> <span className="text-xs font-bold">سلة المشتريات</span>
+                    </button>
+                    <button onClick={() => { setView('admin'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <Plus size={18} className="text-blue-600"/> <span className="text-xs font-bold">إضافة منتج</span>
+                    </button>
+                    <div className="h-px bg-slate-50 my-2" />
+                    {user ? (
+                      <button onClick={() => { signOut(auth); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-red-50 text-red-500 rounded-2xl transition-colors text-right">
+                        <LogOut size={18}/> <span className="text-xs font-bold">تسجيل الخروج</span>
+                      </button>
+                    ) : (
+                      <button onClick={() => { handleLogin(); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 text-blue-600 rounded-2xl transition-colors text-right">
+                        <LogIn size={18}/> <span className="text-xs font-bold">تسجيل الدخول</span>
+                      </button>
+                    )}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </nav>
 
@@ -287,7 +325,6 @@ const FutureStore = () => {
                  <option>Networking</option><option>Electronics</option><option>Gaming</option>
                </select>
 
-               {/* قسم طرق الدفع والبيانات */}
                <div className="p-5 bg-white border border-slate-100 rounded-3xl space-y-4">
                  <p className="text-xs font-black text-slate-400">طرق الدفع المدعومة ومعلومات التحويل:</p>
                  <div className="space-y-3">
@@ -386,7 +423,6 @@ const FutureStore = () => {
                    )}
                 </div>
 
-                {/* عرض بيانات الدفع للمشتري ليعرف أين يحول */}
                 <div className="p-6 bg-slate-900 rounded-[2.5rem] text-white space-y-4">
                    <h4 className="font-black flex items-center gap-2"><CreditCard size={18}/> بيانات الدفع المتاحة:</h4>
                    <div className="grid grid-cols-1 gap-3">
