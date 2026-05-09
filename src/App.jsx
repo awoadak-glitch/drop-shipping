@@ -34,7 +34,7 @@ const provider = new GoogleAuthProvider();
 const FutureStore = () => {
   // State Management
   const [user, setUser] = useState(null);
-  const [userData, setUserData] = useState({ phone: '', address: '', wishlist: [] });
+  const [userData, setUserData] = useState({ phone: '', address: '', wishlist: [], displayName: '' });
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [view, setView] = useState('home'); 
@@ -58,10 +58,11 @@ const FutureStore = () => {
   const [isEditingReview, setIsEditingReview] = useState(null);
 
   // Profile Edit State
+  const [editName, setEditName] = useState(""); // إضافة حالة تعديل الاسم
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
 
-  // Product Creation State (أضيف حقل shippingFee هنا)
+  // Product Creation State
   const [newProduct, setNewProduct] = useState({ 
     name: '', price: '', shippingFee: '', image: '', category: 'Networking', desc: '', 
     paymentMethods: { kuraimi: true, qutaibi: false, paypal: false },
@@ -86,6 +87,7 @@ const FutureStore = () => {
             const data = docSnap.data();
             setCart(data.cart || []);
             setUserData(data);
+            setEditName(data.displayName || currentUser.displayName || ''); // تهيئة الاسم
             setEditPhone(data.phone || '');
             setEditAddress(data.address || '');
           } else {
@@ -145,7 +147,12 @@ const FutureStore = () => {
   const handleUpdateProfile = async () => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, "users", user.uid), { phone: editPhone, address: editAddress });
+      // تحديث الاسم والهاتف والعنوان في الداتابيز
+      await updateDoc(doc(db, "users", user.uid), { 
+        displayName: editName, 
+        phone: editPhone, 
+        address: editAddress 
+      });
       showToast("تم تحديث معلوماتك بنجاح");
     } catch (e) { showToast("حدث خطأ أثناء التحديث", "error"); }
   };
@@ -157,9 +164,9 @@ const FutureStore = () => {
       await addDoc(collection(db, "products"), { 
         ...newProduct, 
         price: Number(newProduct.price), 
-        shippingFee: Number(newProduct.shippingFee || 0), // حفظ رسوم التوصيل
+        shippingFee: Number(newProduct.shippingFee || 0),
         sellerId: user.uid, 
-        sellerName: user.displayName, 
+        sellerName: userData.displayName || user.displayName, // استخدام الاسم المحدث إن وجد
         sellerPhoto: user.photoURL, 
         avgRating: 0, 
         reviewCount: 0, 
@@ -233,7 +240,6 @@ const FutureStore = () => {
     if(user.uid === product.sellerId) return showToast("لا يمكنك مراسلة نفسك", "info");
     const chatId = user.uid < product.sellerId ? `${user.uid}_${product.sellerId}` : `${product.sellerId}_${user.uid}`;
     
-    // جلب معلومات الطرف الآخر بدقة
     const chatData = {
         id: chatId, 
         participants: [user.uid, product.sellerId], 
@@ -241,7 +247,7 @@ const FutureStore = () => {
         lastMsg: "بدأ المحادثة الاستفسارية...", 
         time: Date.now(),
         users: { 
-            [user.uid]: { name: user.displayName, photo: user.photoURL }, 
+            [user.uid]: { name: userData.displayName || user.displayName, photo: user.photoURL }, 
             [product.sellerId]: { name: product.sellerName, photo: product.sellerPhoto } 
         }
     };
@@ -290,7 +296,7 @@ const FutureStore = () => {
         showToast("تم تعديل التقييم");
       } else {
         const docRef = await addDoc(collection(db, `products/${selectedProduct.id}/reviews`), { 
-          userId: user.uid, userName: user.displayName, userPhoto: user.photoURL, 
+          userId: user.uid, userName: userData.displayName || user.displayName, userPhoto: user.photoURL, 
           text: reviewInput, rating: ratingInput, date: Date.now() 
         });
         updatedReviews = [...reviews, { rating: ratingInput }];
@@ -362,7 +368,6 @@ const FutureStore = () => {
   });
 
   const subTotal = cart.reduce((s, i) => s + (i.price * (i.qty || 1)), 0);
-  // تعديل: حساب رسوم التوصيل بناءً على ما حدده الناشر لكل منتج
   const shipping = cart.reduce((s, i) => s + (Number(i.shippingFee || 0) * (i.qty || 1)), 0);
   const total = subTotal + shipping;
 
@@ -406,7 +411,10 @@ const FutureStore = () => {
                   <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute left-0 mt-3 w-64 bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 p-3 z-[170]">
                     <div className="p-4 border-b border-slate-50 mb-2 flex items-center gap-3 text-right">
                        <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-10 h-10 rounded-xl" alt=""/>
-                       <div className="overflow-hidden"><p className="text-[10px] font-black text-slate-400 uppercase">مرحباً بك</p><p className="text-xs font-black truncate">{user?.displayName || 'زائر جديد'}</p></div>
+                       <div className="overflow-hidden">
+                         <p className="text-[10px] font-black text-slate-400 uppercase">مرحباً بك</p>
+                         <p className="text-xs font-black truncate">{userData.displayName || user?.displayName || 'زائر جديد'}</p>
+                       </div>
                     </div>
                     <button onClick={() => { setView('profile'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 rounded-2xl transition-colors text-right"><User size={18} className="text-blue-600"/> <span className="text-xs font-bold">الملف الشخصي</span></button>
                     {user ? (
@@ -583,12 +591,17 @@ const FutureStore = () => {
                     <div className="h-48 bg-gradient-to-br from-blue-700 via-blue-50 to-cyan-400" />
                     <div className="px-10 pb-12 -mt-20 text-center">
                         <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-40 h-40 rounded-[3rem] border-[10px] border-white shadow-2xl object-cover mx-auto mb-6" alt=""/>
-                        <h2 className="text-3xl font-black text-slate-900">{user?.displayName}</h2>
+                        <h2 className="text-3xl font-black text-slate-900">{userData.displayName || user?.displayName}</h2>
                         <p className="text-slate-400 font-bold text-sm mb-8">{user?.email}</p>
                         <div className="space-y-6 text-right">
-                            <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">العنوان</label><input type="text" value={editAddress} onChange={e => setEditAddress(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none" /></div>
-                            <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">الواتساب</label><input type="text" value={editPhone} onChange={e => setEditPhone(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none" /></div>
-                            <button onClick={handleUpdateProfile} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black hover:scale-[1.02] active:scale-95 transition-all">حفظ التغييرات</button>
+                            {/* إضافة حقل تعديل الاسم */}
+                            <div className="space-y-3">
+                                <label className="text-[11px] font-black text-slate-500 mr-4">الاسم المستعار (يظهر للعملاء)</label>
+                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none border border-transparent focus:border-blue-500 transition-all" />
+                            </div>
+                            <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">العنوان</label><input type="text" value={editAddress} onChange={e => setEditAddress(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none border border-transparent focus:border-blue-500 transition-all" /></div>
+                            <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">الواتساب</label><input type="text" value={editPhone} onChange={e => setEditPhone(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none border border-transparent focus:border-blue-500 transition-all" /></div>
+                            <button onClick={handleUpdateProfile} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black hover:scale-[1.02] active:scale-95 transition-all shadow-xl">حفظ التغييرات</button>
                         </div>
                     </div>
                 </div>
