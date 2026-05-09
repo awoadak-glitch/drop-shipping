@@ -4,7 +4,7 @@ import {
   Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, 
   MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3, Search,
   Bell, Heart, Layout, Filter, ArrowRight, Home, Menu, RefreshCw, Eye, Check, CheckCheck,
-  Truck, Receipt, CreditCard as CardIcon, Image as ImageIcon, DollarSign
+  Truck, Receipt, CreditCard as CardIcon, Image as ImageIcon, DollarSign, Coins
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -65,6 +65,7 @@ const FutureStore = () => {
   // Product Creation State
   const [newProduct, setNewProduct] = useState({ 
     name: '', price: '', shippingFee: '', image: '', category: 'Networking', desc: '', 
+    currency: '$', // القيمة الافتراضية للعملة
     paymentMethods: { kuraimi: true, qutaibi: false, paypal: false },
     paymentDetails: { kuraimi: '', qutaibi: '', paypal: '' } 
   });
@@ -175,6 +176,7 @@ const FutureStore = () => {
       setView('home');
       setNewProduct({ 
         name: '', price: '', shippingFee: '', image: '', category: 'Networking', desc: '', 
+        currency: '$',
         paymentMethods: { kuraimi: true, qutaibi: false, paypal: false },
         paymentDetails: { kuraimi: '', qutaibi: '', paypal: '' } 
       });
@@ -468,7 +470,7 @@ const FutureStore = () => {
                     <div className="flex justify-between items-center mt-4 px-2">
                       <div className="flex flex-col">
                         <span className="text-[10px] text-slate-400 font-bold uppercase">السعر</span>
-                        <span className="text-blue-600 font-black text-xl">${product.price}</span>
+                        <span className="text-blue-600 font-black text-xl">{product.currency}{product.price}</span>
                       </div>
                       <button onClick={() => addToCart(product)} className="bg-slate-900 text-white w-12 h-12 rounded-2xl flex items-center justify-center hover:bg-blue-600 transition-colors shadow-lg active:scale-90"><Plus size={20}/></button>
                     </div>
@@ -497,16 +499,38 @@ const FutureStore = () => {
                         <label className="text-[10px] font-black text-slate-400 mr-2 uppercase">اسم السلعة</label>
                         <input type="text" placeholder="مثلاً: Mikrotik hAP ac2" required className="w-full p-5 bg-slate-50 border border-transparent rounded-2xl outline-none font-bold text-sm focus:bg-white focus:border-blue-100 transition-all" onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
                       </div>
+                      
+                      {/* اختيار العملة - الإضافة المطلوبة */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 mr-2 uppercase">عملة البيع</label>
+                        <div className="grid grid-cols-3 gap-2">
+                           {[
+                             { label: 'دولار', val: '$' },
+                             { label: 'سعودي', val: 'ر.س' },
+                             { label: 'يمني', val: 'ر.ي' }
+                           ].map((curr) => (
+                             <button 
+                               key={curr.val}
+                               type="button"
+                               onClick={() => setNewProduct({...newProduct, currency: curr.val})}
+                               className={`py-3 rounded-xl font-black text-xs border transition-all ${newProduct.currency === curr.val ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-400 border-transparent hover:border-slate-200'}`}
+                             >
+                               {curr.label} ({curr.val})
+                             </button>
+                           ))}
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 mr-2 uppercase">السعر ($)</label>
+                          <label className="text-[10px] font-black text-slate-400 mr-2 uppercase">السعر ({newProduct.currency})</label>
                           <div className="relative">
-                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16}/>
+                            <Coins className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16}/>
                             <input type="number" placeholder="0.00" required className="w-full p-5 pl-10 bg-slate-50 border border-transparent rounded-2xl outline-none font-bold text-sm focus:bg-white focus:border-blue-100 transition-all" onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 mr-2 uppercase">التوصيل ($)</label>
+                          <label className="text-[10px] font-black text-slate-400 mr-2 uppercase">التوصيل ({newProduct.currency})</label>
                           <div className="relative">
                             <Truck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16}/>
                             <input type="number" placeholder="0.00" required className="w-full p-5 pl-10 bg-slate-50 border border-transparent rounded-2xl outline-none font-bold text-sm focus:bg-white focus:border-blue-100 transition-all" onChange={e => setNewProduct({...newProduct, shippingFee: e.target.value})} />
@@ -569,7 +593,6 @@ const FutureStore = () => {
             </motion.div>
           )}
 
-          {/* البقية كما هي في الكود الأصلي (سلة، شات، بروفايل) مع الحفاظ على نفس المنطق */}
           {view === 'cart' && (
             <motion.div key="cart" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-6xl mx-auto p-4">
                <div className="flex justify-between items-end mb-10">
@@ -595,7 +618,7 @@ const FutureStore = () => {
                                 <div className="flex-1 text-center sm:text-right">
                                     <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{item.category}</span>
                                     <h4 className="font-black text-lg mt-1">{item.name}</h4>
-                                    <p className="text-slate-400 text-xs font-bold">توصيل: ${item.shippingFee || 0}</p>
+                                    <p className="text-slate-400 text-xs font-bold">توصيل: {item.currency}{item.shippingFee || 0}</p>
                                 </div>
                                 <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-100">
                                     <button onClick={() => updateCartQty(item.cartId, -1)} className="w-10 h-10 bg-white rounded-xl flex items-center justify-center"><Minus size={16}/></button>
@@ -604,7 +627,7 @@ const FutureStore = () => {
                                 </div>
                                 <div className="text-center sm:text-left min-w-[100px]">
                                     <p className="text-[10px] text-slate-400 font-black">المجموع</p>
-                                    <span className="text-xl font-black">${((item.price) * (item.qty || 1)).toFixed(2)}</span>
+                                    <span className="text-xl font-black">{item.currency}{((item.price) * (item.qty || 1)).toFixed(2)}</span>
                                 </div>
                                 <button onClick={() => removeFromCart(item.cartId)} className="p-4 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
                             </motion.div>
@@ -733,11 +756,11 @@ const FutureStore = () => {
                     <div className="flex justify-between items-center bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100">
                         <div className="flex flex-col text-right">
                           <span className="text-[10px] text-slate-400 font-black uppercase">التوصيل</span>
-                          <span className="font-black text-lg text-slate-900">${selectedProduct.shippingFee || 0}</span>
+                          <span className="font-black text-lg text-slate-900">{selectedProduct.currency}{selectedProduct.shippingFee || 0}</span>
                         </div>
                         <div className="flex flex-col text-left">
                           <span className="text-[10px] text-slate-400 font-black uppercase">السعر النهائي</span>
-                          <span className="text-4xl font-black text-blue-600">${selectedProduct.price}</span>
+                          <span className="text-4xl font-black text-blue-600">{selectedProduct.currency}{selectedProduct.price}</span>
                         </div>
                     </div>
 
