@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShoppingCart, Star, Trash2, CreditCard, X, LogIn, LogOut, MessageCircle,
-  Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3, Search, Mail, Bell
+  Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3, Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Firebase Setup
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, query, orderBy, deleteDoc, updateDoc, arrayUnion, where } from "firebase/firestore";
+import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, query, orderBy, deleteDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "firebase/auth";
 
 const firebaseConfig = {
@@ -35,7 +35,7 @@ const FutureStore = () => {
   const [activeCategory, setActiveCategory] = useState("الكل");
   const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false); 
   
   const [chatInfo, setChatInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -45,8 +45,9 @@ const FutureStore = () => {
   const [ratingInput, setRatingInput] = useState(5);
   const [editingReview, setEditingReview] = useState(null);
 
-  // حالات جديدة للرسائل الواردة
-  const [userChats, setUserChats] = useState([]);
+  // حالات لتعديل الملف الشخصي
+  const [editPhone, setEditPhone] = useState("");
+  const [editAddress, setEditAddress] = useState("");
 
   const [newProduct, setNewProduct] = useState({ 
     name: '', price: '', image: '', category: 'Networking', desc: '', 
@@ -65,23 +66,34 @@ const FutureStore = () => {
       if (currentUser) {
         onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
           if (docSnap.exists()) {
-            setCart(docSnap.data().cart || []);
-            setUserData({ phone: docSnap.data().phone || '', address: docSnap.data().address || '' });
+            const data = docSnap.data();
+            setCart(data.cart || []);
+            setUserData({ phone: data.phone || '', address: data.address || '' });
+            setEditPhone(data.phone || '');
+            setEditAddress(data.address || '');
           } else {
             setDoc(doc(db, "users", currentUser.uid), { cart: [], createdAt: Date.now() });
           }
-        });
-
-        // جلب المحادثات التي يشارك فيها المستخدم
-        const qChats = query(collection(db, "chats"), where("participants", "array-contains", currentUser.uid));
-        onSnapshot(qChats, (snap) => {
-          setUserChats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
       }
     });
 
     return () => { unsubProducts(); unsubAuth(); };
   }, []);
+
+  // تحديث بيانات الملف الشخصي في Firebase
+  const handleUpdateProfile = async () => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, "users", user.uid), {
+        phone: editPhone,
+        address: editAddress
+      });
+      showToast("تم تحديث معلوماتك بنجاح");
+    } catch (e) {
+      showToast("حدث خطأ أثناء التحديث");
+    }
+  };
 
   useEffect(() => {
     if (selectedProduct) {
@@ -164,29 +176,8 @@ const FutureStore = () => {
     } catch (e) { showToast("حدث خطأ"); }
   };
 
-  const deleteReview = async (revId) => {
-    if (window.confirm("حذف التعليق؟")) {
-      await deleteDoc(doc(db, `products/${selectedProduct.id}/reviews`, revId));
-      showToast("تم الحذف");
-    }
-  };
-
-  // تحسين إرسال الرسائل لإنشاء وثيقة المحادثة إذا لم تكن موجودة
   const sendMsg = async () => {
     if(!msgInput || !chatInfo) return;
-    const chatRef = doc(db, "chats", chatInfo.id);
-    
-    await setDoc(chatRef, {
-      participants: chatInfo.id.split('_'),
-      lastMessage: msgInput,
-      lastTime: Date.now(),
-      productName: chatInfo.productName,
-      sellerName: chatInfo.sellerName,
-      sellerPhoto: chatInfo.sellerPhoto,
-      buyerName: user.displayName,
-      buyerPhoto: user.photoURL
-    }, { merge: true });
-
     await addDoc(collection(db, `chats/${chatInfo.id}/messages`), {
       text: msgInput, sender: user.uid, time: Date.now()
     });
@@ -222,12 +213,7 @@ const FutureStore = () => {
           <span className="font-black text-xl tracking-tighter">FUTURE <span className="text-blue-600">ST</span></span>
         </div>
         <div className="flex gap-2 relative">
-          {user && (
-            <button onClick={() => setView('inbox')} className="p-3 bg-white border border-slate-100 rounded-2xl text-slate-600 hover:text-blue-600 transition-all relative">
-              <Mail size={22}/>
-              {userChats.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
-            </button>
-          )}
+          {user && <button onClick={() => setView('admin')} className="p-3 bg-slate-100 rounded-2xl text-slate-600 hover:bg-blue-600 hover:text-white transition-all"><Plus size={22}/></button>}
           <button onClick={() => setView('cart')} className="bg-slate-900 text-white px-5 py-3 rounded-2xl flex items-center gap-3 shadow-xl relative">
             <ShoppingBag size={20}/>
             <span className="font-black text-sm">${totalPrice}</span>
@@ -244,18 +230,18 @@ const FutureStore = () => {
                 <>
                   <div className="fixed inset-0 z-[160]" onClick={() => setShowProfileMenu(false)} />
                   <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute left-0 mt-2 w-56 bg-white rounded-3xl shadow-2xl border border-slate-100 p-2 z-[170] overflow-hidden">
-                    <div className="p-4 bg-gradient-to-br from-slate-50 to-white border-b border-slate-100 mb-2 rounded-t-2xl">
-                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1">الحساب الشخصي</p>
-                       <p className="text-xs font-black truncate text-blue-600">{user?.displayName || 'زائر جديد'}</p>
+                    <div className="p-4 border-b border-slate-50 mb-2">
+                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1">مرحباً بك</p>
+                       <p className="text-xs font-black truncate">{user?.displayName || 'زائر جديد'}</p>
                     </div>
-                    <button onClick={() => { setView('profile'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-2xl transition-colors text-right group">
-                       <User size={18} className="text-slate-400 group-hover:text-blue-600 transition-colors"/> <span className="text-xs font-bold">ملفي الشخصي</span>
+                    <button onClick={() => { setView('profile'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <User size={18} className="text-blue-600"/> <span className="text-xs font-bold">الملف الشخصي</span>
                     </button>
-                    <button onClick={() => { setView('inbox'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-2xl transition-colors text-right group">
-                       <Mail size={18} className="text-slate-400 group-hover:text-blue-600 transition-colors"/> <span className="text-xs font-bold">الرسائل الواردة</span>
+                    <button onClick={() => { setView('cart'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <ShoppingBag size={18} className="text-blue-600"/> <span className="text-xs font-bold">سلة المشتريات</span>
                     </button>
-                    <button onClick={() => { setView('admin'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-2xl transition-colors text-right group">
-                       <Plus size={18} className="text-slate-400 group-hover:text-blue-600 transition-colors"/> <span className="text-xs font-bold">إضافة منتج جديد</span>
+                    <button onClick={() => { setView('admin'); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl transition-colors text-right">
+                       <Plus size={18} className="text-blue-600"/> <span className="text-xs font-bold">إضافة منتج</span>
                     </button>
                     <div className="h-px bg-slate-50 my-2" />
                     {user ? (
@@ -306,80 +292,36 @@ const FutureStore = () => {
           </motion.div>
         )}
 
-        {/* صفحة البروفايل الجديدة */}
+        {/* عرض الملف الشخصي مع البيانات الحقيقية من الصورة */}
         {view === 'profile' && (
-          <motion.div key="profile" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="p-6 max-w-2xl mx-auto space-y-6">
-            <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-full h-32 bg-blue-600/5 -z-0"></div>
-              <div className="flex flex-col items-center relative z-10">
-                <img src={user?.photoURL} className="w-32 h-32 rounded-[2.5rem] border-4 border-white shadow-xl mb-4" />
-                <h2 className="text-2xl font-black">{user?.displayName}</h2>
+          <motion.div key="profile" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-6 max-w-md mx-auto space-y-6">
+            <div className="bg-white rounded-[3rem] shadow-xl border border-slate-100 overflow-hidden">
+              <div className="h-32 bg-gradient-to-r from-blue-600 to-blue-400" />
+              <div className="px-8 pb-8 -mt-16 text-center">
+                <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-32 h-32 rounded-[2.5rem] border-8 border-white shadow-lg mx-auto object-cover mb-4" />
+                <h2 className="text-2xl font-black text-slate-900">{user?.displayName || 'المستخدم'}</h2>
                 <p className="text-slate-400 font-bold text-sm mb-6">{user?.email}</p>
-                <div className="grid grid-cols-3 gap-4 w-full">
-                  <div className="bg-slate-50 p-4 rounded-3xl text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase">الطلبات</p>
-                    <p className="text-xl font-black text-blue-600">{cart.length}</p>
+                
+                <div className="grid grid-cols-3 gap-3 mb-8">
+                  <div className="bg-slate-50 p-4 rounded-3xl"><p className="text-[10px] text-slate-400 font-black">الطلبات</p><p className="text-lg font-black">0</p></div>
+                  <div className="bg-slate-50 p-4 rounded-3xl"><p className="text-[10px] text-slate-400 font-black">المبيعات</p><p className="text-lg font-black">{products.filter(p => p.sellerId === user?.uid).length}</p></div>
+                  <div className="bg-slate-50 p-4 rounded-3xl"><p className="text-[10px] text-slate-400 font-black">التقييم</p><p className="text-lg font-black text-blue-600">5.0</p></div>
+                </div>
+
+                <div className="space-y-4 text-right">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 mr-4 uppercase flex items-center gap-2"><MapPin size={12}/> عنوان الشحن</label>
+                    <input type="text" value={editAddress} placeholder="أضف عنوانك هنا..." className="w-full p-5 bg-slate-50 border border-slate-100 rounded-3xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" onChange={e => setEditAddress(e.target.value)} />
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-3xl text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase">المبيعات</p>
-                    <p className="text-xl font-black text-blue-600">{products.filter(p => p.sellerId === user?.uid).length}</p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 mr-4 uppercase flex items-center gap-2"><Phone size={12}/> رقم الهاتف</label>
+                    <input type="text" value={editPhone} placeholder="أضف رقم هاتفك..." className="w-full p-5 bg-slate-50 border border-slate-100 rounded-3xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" onChange={e => setEditPhone(e.target.value)} />
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-3xl text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase">التقييم</p>
-                    <p className="text-xl font-black text-blue-600">5.0</p>
-                  </div>
+                  <button onClick={handleUpdateProfile} className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black shadow-xl mt-4">حفظ التغييرات</button>
+                  <button onClick={() => setView('home')} className="w-full bg-white border border-slate-100 text-slate-500 py-5 rounded-3xl font-black">العودة للتسوق</button>
                 </div>
               </div>
-              <div className="mt-10 space-y-4">
-                 <button className="w-full flex items-center justify-between p-5 bg-slate-50 rounded-2xl font-bold text-sm">
-                   <div className="flex items-center gap-3"><MapPin size={18} className="text-blue-600"/> عنوان الشحن</div>
-                   <ChevronRight size={18}/>
-                 </button>
-                 <button className="w-full flex items-center justify-between p-5 bg-slate-50 rounded-2xl font-bold text-sm">
-                   <div className="flex items-center gap-3"><Phone size={18} className="text-blue-600"/> رقم الهاتف</div>
-                   <ChevronRight size={18}/>
-                 </button>
-              </div>
-              <button onClick={() => setView('home')} className="w-full mt-8 bg-slate-900 text-white py-5 rounded-2xl font-black">العودة للتسوق</button>
             </div>
-          </motion.div>
-        )}
-
-        {/* صفحة صندوق الوارد الجديدة */}
-        {view === 'inbox' && (
-          <motion.div key="inbox" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-6 max-w-2xl mx-auto space-y-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-black">المحادثات الواردة</h2>
-              <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-xl"><X/></button>
-            </div>
-            {userChats.length === 0 ? (
-              <div className="bg-white p-20 rounded-[3rem] text-center border border-slate-100">
-                <MessageCircle size={48} className="mx-auto mb-4 text-slate-200"/>
-                <p className="font-black text-slate-400">لا توجد رسائل بعد</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {userChats.map(chat => {
-                  const isSeller = user.uid === chat.id.split('_')[1];
-                  const otherName = isSeller ? chat.buyerName : chat.sellerName;
-                  const otherPhoto = isSeller ? chat.buyerPhoto : chat.sellerPhoto;
-                  
-                  return (
-                    <div key={chat.id} onClick={() => { setChatInfo(chat); setView('chat'); }} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center gap-4 cursor-pointer hover:border-blue-200 transition-all shadow-sm">
-                      <img src={otherPhoto} className="w-14 h-14 rounded-2xl object-cover" />
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-1">
-                          <h4 className="font-black text-sm">{otherName}</h4>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase">{chat.productName}</span>
-                        </div>
-                        <p className="text-xs text-slate-500 font-medium truncate">{chat.lastMessage}</p>
-                      </div>
-                      <ChevronRight size={18} className="text-slate-300"/>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </motion.div>
         )}
 
@@ -462,9 +404,9 @@ const FutureStore = () => {
             <div className="p-6 bg-slate-900 text-white flex justify-between items-center shadow-2xl">
               <div className="flex items-center gap-4">
                 <img src={chatInfo.sellerPhoto} className="w-12 h-12 rounded-2xl object-cover border-2 border-blue-500" />
-                <div><h3 className="font-black truncate w-40">محادثة: {chatInfo.sellerName}</h3><p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">{chatInfo.productName}</p></div>
+                <div><h3 className="font-black">محادثة: {chatInfo.sellerName}</h3><p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">{chatInfo.productName}</p></div>
               </div>
-              <button onClick={() => setView('inbox')} className="p-3 bg-white/10 rounded-full"><X/></button>
+              <button onClick={() => setView('home')} className="p-3 bg-white/10 rounded-full"><X/></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
               {messages.map((m, i) => (
