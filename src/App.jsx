@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShoppingCart, Star, Trash2, CreditCard, X, LogIn, LogOut, 
-  Zap, ShoppingBag, ChevronRight
+  Zap, ShoppingBag, ChevronRight, Plus, Minus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -35,19 +35,23 @@ const productsData = [
 const FutureStore = () => {
   const [user, setUser] = useState(null);
   const [cart, setCart] = useState([]);
-  const [view, setView] = useState('home'); // 'home' or 'cart'
+  const [view, setView] = useState('home');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [activeCategory, setActiveCategory] = useState("الكل");
   const [toast, setToast] = useState(null);
+  const [tempQty, setTempQty] = useState(1); // للتحكم بالكمية قبل الإضافة
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         const userRef = doc(db, "users", currentUser.uid);
-        onSnapshot(userRef, (docSnap) => {
-          if (docSnap.exists()) setCart(docSnap.data().cart || []);
+        const unsubCart = onSnapshot(userRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setCart(docSnap.data().cart || []);
+          }
         });
+        return () => unsubCart();
       } else {
         setCart([]);
       }
@@ -60,41 +64,68 @@ const FutureStore = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const syncCartToFirebase = async (newCart) => {
+    if (user) {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { cart: newCart }, { merge: true });
+    }
+  };
+
   const handleLogin = async () => {
     try {
       const result = await signInWithPopup(auth, provider);
       if(result.user) showToast(`أهلاً بك ${result.user.displayName}`);
     } catch (error) {
-      showToast("تعذر الدخول حالياً");
+      showToast("تأكد من إعدادات Firebase");
     }
   };
 
-  const addToCart = async (product) => {
+  const addToCart = async (product, qty = 1) => {
     if (!user) {
       showToast("سجل دخولك أولاً");
       handleLogin();
       return;
     }
-    const updated = [...cart, { ...product, cartId: Date.now() }];
-    setCart(updated);
-    await setDoc(doc(db, "users", user.uid), { cart: updated }, { merge: true });
-    showToast("تمت الإضافة ✅");
+
+    let updatedCart = [...cart];
+    const existingIndex = updatedCart.findIndex(item => item.id === product.id);
+
+    if (existingIndex > -1) {
+      updatedCart[existingIndex].qty += qty;
+    } else {
+      updatedCart.push({ ...product, qty: qty, cartId: Date.now() });
+    }
+
+    setCart(updatedCart);
+    await syncCartToFirebase(updatedCart);
+    showToast("تم تحديث السلة ✅");
+  };
+
+  const updateCartQty = async (id, delta) => {
+    const updatedCart = cart.map(item => {
+      if (item.id === id) {
+        const newQty = Math.max(1, item.qty + delta);
+        return { ...item, qty: newQty };
+      }
+      return item;
+    });
+    setCart(updatedCart);
+    await syncCartToFirebase(updatedCart);
   };
 
   const removeFromCart = async (cartId) => {
-    const updated = cart.filter(item => item.cartId !== cartId);
-    setCart(updated);
-    if (user) {
-      await setDoc(doc(db, "users", user.uid), { cart: updated }, { merge: true });
-    }
+    const updatedCart = cart.filter(item => item.cartId !== cartId);
+    setCart(updatedCart);
+    await syncCartToFirebase(updatedCart);
   };
 
-  const totalPrice = cart.reduce((sum, item) => sum + item.price, 0);
+  const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+  const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans pb-10" dir="rtl">
       
-      {/* التنبيهات (Toast) */}
+      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div 
@@ -107,9 +138,9 @@ const FutureStore = () => {
         )}
       </AnimatePresence>
 
-      {/* الهيدر (ثابت دائماً لحل مشكلة السلة) */}
+      {/* Header */}
       <nav className="sticky top-0 bg-white/80 backdrop-blur-xl z-40 border-b border-gray-100 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3" onClick={() => setView('home')} style={{cursor: 'pointer'}}>
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('home')}>
           <div className="bg-blue-600 text-white w-10 h-10 rounded-2xl flex items-center justify-center font-black shadow-lg shadow-blue-200">F</div>
           <span className="font-black text-gray-900 text-lg tracking-tighter">FUTURE STORE</span>
         </div>
@@ -118,38 +149,35 @@ const FutureStore = () => {
           {user ? (
             <button onClick={() => signOut(auth)} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500"><LogOut size={18}/></button>
           ) : (
-            <button onClick={handleLogin} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md">
+            <button onClick={handleLogin} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
               <LogIn size={16}/> دخول
             </button>
           )}
           <button 
             onClick={() => setView(view === 'cart' ? 'home' : 'cart')} 
-            className={`${view === 'cart' ? 'bg-blue-600' : 'bg-gray-900'} text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-xl`}
+            className={`${view === 'cart' ? 'bg-blue-600' : 'bg-gray-900'} text-white px-4 py-2 rounded-xl flex items-center gap-2 shadow-xl relative`}
           >
             {view === 'cart' ? <X size={18}/> : <ShoppingBag size={18} />}
             <span className="font-black text-sm">${totalPrice}</span>
+            {totalItems > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">{totalItems}</span>}
           </button>
         </div>
       </nav>
 
-      {/* المحتوى المتغير */}
       <AnimatePresence mode="wait">
         {view === 'home' ? (
-          <motion.main 
-            key="home" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-            className="p-4 space-y-8 max-w-lg mx-auto"
-          >
+          <motion.main key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 space-y-8 max-w-lg mx-auto">
             {/* Hero Section */}
             <div className="bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl shadow-blue-200">
               <div className="relative z-10 text-right">
                 <h2 className="text-3xl font-black mb-2">استكشف عالم <br/> التكنولوجيا</h2>
-                <p className="text-blue-100 text-sm mb-6 opacity-80">أفضل الراوترات المعدلة خصيصاً لك</p>
-                <button onClick={() => setActiveCategory("Networking")} className="bg-white text-blue-600 px-6 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2">استكشف الآن <ChevronRight size={16}/></button>
+                <p className="text-blue-100 text-sm mb-6 opacity-80">أفضل الراوترات المعدلة بأعلى أداء</p>
+                <button onClick={() => setActiveCategory("Networking")} className="bg-white text-blue-600 px-6 py-3 rounded-2xl font-black text-sm flex items-center gap-2">ابدأ الآن <ChevronRight size={16}/></button>
               </div>
               <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
             </div>
 
-            {/* الأقسام */}
+            {/* Categories */}
             <div className="flex gap-3 overflow-x-auto no-scrollbar py-2">
               {["الكل", "Networking", "Electronics", "Gaming"].map(cat => (
                 <button 
@@ -161,14 +189,11 @@ const FutureStore = () => {
               ))}
             </div>
 
-            {/* شبكة المنتجات */}
+            {/* Products Grid */}
             <div className="grid grid-cols-2 gap-4">
-              {productsData.filter(p => activeCategory === "الكل" || p.category === activeCategory).map((product, idx) => (
-                <motion.div 
-                  layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }}
-                  key={product.id} className="bg-white rounded-[2rem] p-3 border border-gray-50 shadow-sm flex flex-col"
-                >
-                  <div onClick={() => setSelectedProduct(product)} className="aspect-square bg-gray-50 rounded-[1.5rem] overflow-hidden relative mb-3 cursor-pointer">
+              {productsData.filter(p => activeCategory === "الكل" || p.category === activeCategory).map((product) => (
+                <motion.div layout key={product.id} className="bg-white rounded-[2rem] p-3 border border-gray-50 shadow-sm flex flex-col">
+                  <div onClick={() => { setSelectedProduct(product); setTempQty(1); }} className="aspect-square bg-gray-50 rounded-[1.5rem] overflow-hidden relative mb-3 cursor-pointer">
                     <img src={product.image} className="w-full h-full object-cover" alt="" />
                     <div className="absolute top-2 left-2 bg-white/90 backdrop-blur px-2 py-1 rounded-lg flex items-center gap-1">
                       <Star size={10} className="fill-yellow-400 text-yellow-400"/>
@@ -176,10 +201,10 @@ const FutureStore = () => {
                     </div>
                   </div>
                   <div className="px-1 flex-1 flex flex-col">
-                    <h3 className="text-[11px] font-bold text-gray-800 line-clamp-1 mb-2">{product.name}</h3>
+                    <h3 className="text-[11px] font-bold text-gray-800 line-clamp-1 mb-2 text-right">{product.name}</h3>
                     <div className="mt-auto flex justify-between items-center">
                       <span className="text-sm font-black text-blue-600">${product.price}</span>
-                      <button onClick={() => addToCart(product)} className="bg-gray-900 text-white p-2.5 rounded-xl shadow-md active:scale-90 transition-transform">
+                      <button onClick={() => addToCart(product, 1)} className="bg-gray-900 text-white p-2.5 rounded-xl shadow-md">
                         <ShoppingCart size={14} />
                       </button>
                     </div>
@@ -189,25 +214,31 @@ const FutureStore = () => {
             </div>
           </motion.main>
         ) : (
-          <motion.div 
-            key="cart" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-            className="p-6 max-w-md mx-auto min-h-[60vh] flex flex-col"
-          >
+          <motion.div key="cart" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 max-w-md mx-auto min-h-[60vh] flex flex-col">
              <h2 className="text-3xl font-black mb-8 text-right">سلتك الذكية</h2>
              {cart.length === 0 ? (
                <div className="flex-1 flex flex-col items-center justify-center text-gray-300 gap-4">
                  <ShoppingBag size={60} strokeWidth={1} />
-                 <p className="font-bold">السلة فارغة تماماً</p>
-                 <button onClick={() => setView('home')} className="text-blue-600 font-bold text-sm underline">ابدأ بالتسوق الآن</button>
+                 <p className="font-bold">السلة فارغة</p>
+                 <button onClick={() => setView('home')} className="text-blue-600 font-bold text-sm underline">ابدأ بالتسوق</button>
                </div>
              ) : (
                <div className="space-y-4">
-                  {cart.map((item, i) => (
-                    <motion.div key={item.cartId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-4 rounded-3xl flex items-center gap-4 border border-gray-50 shadow-sm">
-                      <img src={item.image} className="w-14 h-14 rounded-2xl object-cover" alt="" />
-                      <div className="flex-1 font-bold text-xs text-right">{item.name}</div>
-                      <div className="font-black text-blue-600 ml-2">${item.price}</div>
-                      <button onClick={() => removeFromCart(item.cartId)} className="text-gray-300 hover:text-red-500"><Trash2 size={18}/></button>
+                  {cart.map((item) => (
+                    <motion.div key={item.cartId} className="bg-white p-4 rounded-3xl flex items-center gap-4 border border-gray-50 shadow-sm">
+                      <img src={item.image} className="w-16 h-16 rounded-2xl object-cover" alt="" />
+                      <div className="flex-1 text-right">
+                        <div className="font-bold text-xs mb-2">{item.name}</div>
+                        <div className="flex items-center gap-3">
+                           <button onClick={() => updateCartQty(item.id, -1)} className="p-1 bg-gray-100 rounded-md"><Minus size={12}/></button>
+                           <span className="text-xs font-black">{item.qty}</span>
+                           <button onClick={() => updateCartQty(item.id, 1)} className="p-1 bg-gray-100 rounded-md"><Plus size={12}/></button>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-blue-600">${item.price * item.qty}</div>
+                        <button onClick={() => removeFromCart(item.cartId)} className="text-red-400 mt-2"><Trash2 size={16}/></button>
+                      </div>
                     </motion.div>
                   ))}
                   <div className="pt-10">
@@ -215,8 +246,8 @@ const FutureStore = () => {
                       <span className="text-gray-400 font-bold">الإجمالي النهائي</span>
                       <span className="text-2xl font-black text-gray-900">${totalPrice}</span>
                     </div>
-                    <button className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-transform">
-                      <CreditCard /> إتمام عملية الشراء
+                    <button className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 shadow-2xl">
+                      <CreditCard /> إتمام الدفع
                     </button>
                   </div>
                </div>
@@ -225,34 +256,38 @@ const FutureStore = () => {
         )}
       </AnimatePresence>
 
-      {/* Modal تفاصيل المنتج */}
+      {/* Modal تفاصيل المنتج مع زيادة ونقصان */}
       <AnimatePresence>
         {selectedProduct && (
           <div className="fixed inset-0 z-50 flex items-end">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setSelectedProduct(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="relative bg-white w-full rounded-t-[3.5rem] p-8 shadow-2xl"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedProduct(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative bg-white w-full rounded-t-[3.5rem] p-8 shadow-2xl">
               <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto mb-8"></div>
               <img src={selectedProduct.image} className="w-full h-64 object-cover rounded-[2.5rem] mb-8 shadow-lg" alt="" />
-              <div className="flex justify-between items-start mb-4 text-right">
+              
+              <div className="flex justify-between items-start mb-6 text-right">
                 <div>
                   <h2 className="text-2xl font-black text-gray-900 mb-1">{selectedProduct.name}</h2>
                   <span className="text-blue-600 font-bold text-sm">{selectedProduct.category}</span>
                 </div>
-                <div className="bg-gray-50 px-4 py-2 rounded-2xl font-black text-xl">${selectedProduct.price}</div>
+                <div className="text-left">
+                  <div className="bg-gray-50 px-4 py-2 rounded-2xl font-black text-xl mb-2">${selectedProduct.price}</div>
+                  {/* أزرار الزيادة والنقصان */}
+                  <div className="flex items-center gap-4 bg-gray-100 p-2 rounded-2xl">
+                    <button onClick={() => setTempQty(prev => Math.max(1, prev - 1))} className="w-8 h-8 bg-white rounded-xl flex items-center justify-center shadow-sm"><Minus size={14}/></button>
+                    <span className="font-black text-sm">{tempQty}</span>
+                    <button onClick={() => setTempQty(prev => prev + 1)} className="w-8 h-8 bg-white rounded-xl flex items-center justify-center shadow-sm"><Plus size={14}/></button>
+                  </div>
+                </div>
               </div>
+
               <p className="text-gray-500 text-sm leading-relaxed mb-10 text-right">{selectedProduct.desc}</p>
+              
               <button 
-                onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); }}
+                onClick={() => { addToCart(selectedProduct, tempQty); setSelectedProduct(null); }}
                 className="w-full bg-blue-600 text-white py-5 rounded-[2rem] font-black text-lg shadow-xl shadow-blue-100 flex items-center justify-center gap-3"
               >
-                <ShoppingCart /> إضافة إلى السلة
+                <ShoppingCart /> إضافة {tempQty} منتجات للسلة
               </button>
             </motion.div>
           </div>
