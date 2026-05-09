@@ -3,7 +3,8 @@ import {
   ShoppingCart, Star, Trash2, CreditCard, X, LogIn, LogOut, MessageCircle,
   Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, 
   MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3, Search,
-  Bell, Heart, Layout, Filter, ArrowRight, Home, Menu, RefreshCw, Eye, Check, CheckCheck
+  Bell, Heart, Layout, Filter, ArrowRight, Home, Menu, RefreshCw, Eye, Check, CheckCheck,
+  Truck, Receipt, CreditCard as CardIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -54,7 +55,7 @@ const FutureStore = () => {
   const [reviews, setReviews] = useState([]);
   const [reviewInput, setReviewInput] = useState("");
   const [ratingInput, setRatingInput] = useState(5);
-  const [isEditingReview, setIsEditingReview] = useState(null); // ID of the review being edited
+  const [isEditingReview, setIsEditingReview] = useState(null);
 
   // Profile Edit State
   const [editPhone, setEditPhone] = useState("");
@@ -105,28 +106,24 @@ const FutureStore = () => {
     return () => { unsubProducts(); unsubAuth(); };
   }, []);
 
-  // Sync Chat Messages & Update Read Status
+  // Sync Chat Messages
   useEffect(() => {
     if (chatInfo && user) {
       const q = query(collection(db, `chats/${chatInfo.id}/messages`), orderBy("time", "asc"));
       const unsubChat = onSnapshot(q, (s) => {
         const msgs = s.docs.map(d => ({ id: d.id, ...d.data() }));
         setMessages(msgs);
-        
-        // Mark unread messages as read
         msgs.forEach(m => {
           if (m.sender !== user.uid && m.status !== 'read') {
             updateDoc(doc(db, `chats/${chatInfo.id}/messages`, m.id), { status: 'read' });
           }
         });
-
         setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       });
       return () => unsubChat();
     }
   }, [chatInfo, user]);
 
-  // Sync Product Reviews
   useEffect(() => {
     if (selectedProduct) {
       const q = query(collection(db, `products/${selectedProduct.id}/reviews`), orderBy("date", "desc"));
@@ -175,13 +172,41 @@ const FutureStore = () => {
     }
   };
 
+  // --- Cart Core Functions (MODIFIED) ---
+
   const addToCart = async (product) => {
     if (!user) return handleLogin();
     try {
-      const newCartItem = { ...product, cartId: Date.now(), qty: 1 };
-      await updateDoc(doc(db, "users", user.uid), { cart: arrayUnion(newCartItem) });
-      showToast("تمت الإضافة للسلة 🛒");
+      const existingItem = cart.find(item => item.id === product.id);
+      let newCart;
+
+      if (existingItem) {
+        // If product exists, increase quantity
+        newCart = cart.map(item => 
+          item.id === product.id ? { ...item, qty: (item.qty || 1) + 1 } : item
+        );
+        showToast(`تم زيادة كمية ${product.name}`);
+      } else {
+        // If product is new, add it with qty 1
+        const newCartItem = { ...product, cartId: Date.now(), qty: 1 };
+        newCart = [...cart, newCartItem];
+        showToast("تمت الإضافة للسلة 🛒");
+      }
+      
+      await updateDoc(doc(db, "users", user.uid), { cart: newCart });
     } catch (err) { showToast("فشل إضافة المنتج", "error"); }
+  };
+
+  const updateCartQty = async (cartId, delta) => {
+    if (!user) return;
+    const newCart = cart.map(item => {
+      if (item.cartId === cartId) {
+        const newQty = (item.qty || 1) + delta;
+        return { ...item, qty: newQty > 0 ? newQty : 1 };
+      }
+      return item;
+    });
+    await updateDoc(doc(db, "users", user.uid), { cart: newCart });
   };
 
   const removeFromCart = async (cartId) => {
@@ -190,25 +215,23 @@ const FutureStore = () => {
     showToast("تم الحذف من السلة");
   };
 
-  // --- Chat Functions ---
+  const clearCart = async () => {
+    if(window.confirm("هل تريد إفراغ السلة بالكامل؟")) {
+      await updateDoc(doc(db, "users", user.uid), { cart: [] });
+      showToast("تم إفراغ السلة");
+    }
+  };
+
+  // --- Chat & Review Functions (Same as before) ---
   const startChat = async (product) => {
     if(!user) return handleLogin();
     if(user.uid === product.sellerId) return showToast("لا يمكنك مراسلة نفسك", "info");
-
     const chatId = user.uid < product.sellerId ? `${user.uid}_${product.sellerId}` : `${product.sellerId}_${user.uid}`;
-    
     await setDoc(doc(db, "chats", chatId), {
-        id: chatId,
-        participants: [user.uid, product.sellerId],
-        productName: product.name,
-        lastMsg: "بدأ المحادثة...",
-        time: Date.now(),
-        users: {
-            [user.uid]: { name: user.displayName, photo: user.photoURL },
-            [product.sellerId]: { name: product.sellerName, photo: product.sellerPhoto }
-        }
+        id: chatId, participants: [user.uid, product.sellerId], productName: product.name,
+        lastMsg: "بدأ المحادثة...", time: Date.now(),
+        users: { [user.uid]: { name: user.displayName, photo: user.photoURL }, [product.sellerId]: { name: product.sellerName, photo: product.sellerPhoto } }
     }, { merge: true });
-
     setChatInfo({ id: chatId, productName: product.name, sellerName: product.sellerName, sellerPhoto: product.sellerPhoto });
     setView('chat');
     setSelectedProduct(null);
@@ -219,34 +242,23 @@ const FutureStore = () => {
     const text = msgInput;
     setMsgInput("");
     try {
-        await addDoc(collection(db, `chats/${chatInfo.id}/messages`), {
-            text, sender: user.uid, time: Date.now(), status: 'sent' // status: sent, delivered, read
-        });
+        await addDoc(collection(db, `chats/${chatInfo.id}/messages`), { text, sender: user.uid, time: Date.now(), status: 'sent' });
         await updateDoc(doc(db, "chats", chatInfo.id), { lastMsg: text, time: Date.now() });
     } catch (e) { showToast("فشل إرسال الرسالة", "error"); }
   };
 
-  // --- Review Functions ---
   const handleReviewAction = async () => {
     if (!user) return handleLogin();
     if (!reviewInput) return showToast("اكتب شيئاً أولاً", "error");
-
     try {
       if (isEditingReview) {
-        await updateDoc(doc(db, `products/${selectedProduct.id}/reviews`, isEditingReview), {
-          text: reviewInput, rating: ratingInput, date: Date.now()
-        });
+        await updateDoc(doc(db, `products/${selectedProduct.id}/reviews`, isEditingReview), { text: reviewInput, rating: ratingInput, date: Date.now() });
         showToast("تم تعديل التقييم");
       } else {
-        await addDoc(collection(db, `products/${selectedProduct.id}/reviews`), {
-          userId: user.uid, userName: user.displayName, userPhoto: user.photoURL,
-          text: reviewInput, rating: ratingInput, date: Date.now()
-        });
+        await addDoc(collection(db, `products/${selectedProduct.id}/reviews`), { userId: user.uid, userName: user.displayName, userPhoto: user.photoURL, text: reviewInput, rating: ratingInput, date: Date.now() });
         showToast("شكراً لتقييمك");
       }
-      setReviewInput("");
-      setRatingInput(5);
-      setIsEditingReview(null);
+      setReviewInput(""); setRatingInput(5); setIsEditingReview(null);
     } catch (e) { showToast("فشل العملية", "error"); }
   };
 
@@ -255,7 +267,7 @@ const FutureStore = () => {
     showToast("تم حذف التقييم");
   };
 
-  // --- Sub-Components ---
+  // --- Helper Components ---
 
   const MessageStatus = ({ status, isMine }) => {
     if (!isMine) return null;
@@ -306,7 +318,9 @@ const FutureStore = () => {
     return matchesCategory && p.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  const totalPrice = cart.reduce((s, i) => s + (i.price * (i.qty || 1)), 0);
+  const subTotal = cart.reduce((s, i) => s + (i.price * (i.qty || 1)), 0);
+  const shipping = subTotal > 100 ? 0 : 5.00;
+  const total = subTotal + shipping;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 pb-24 font-['Cairo',_sans-serif]" dir="rtl">
@@ -327,15 +341,15 @@ const FutureStore = () => {
           <button onClick={() => setIsSidebarOpen(true)} className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><MessageCircle size={22} /></button>
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('home')}>
             <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white"><Zap size={20} fill="currentColor"/></div>
-            <span className="font-black text-lg hidden sm:block">FUTURE <span className="text-blue-600">ST</span></span>
+            <span className="font-black text-lg hidden sm:block uppercase">Future <span className="text-blue-600">Net</span></span>
           </div>
         </div>
 
         <div className="flex gap-2">
           {user && <button onClick={() => setView('admin')} className="hidden sm:flex p-3 bg-slate-100 rounded-2xl text-slate-600 hover:bg-blue-600 hover:text-white items-center gap-2 transition-all font-bold text-xs"><Plus size={18}/> نشر منتج</button>}
           <button onClick={() => setView('cart')} className="bg-slate-900 text-white px-5 py-3 rounded-2xl flex items-center gap-3 shadow-xl relative active:scale-95 transition-transform">
-            <ShoppingBag size={20}/> <span className="font-black text-sm hidden sm:block">${totalPrice}</span>
-            {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-blue-500 w-5 h-5 rounded-full text-[10px] flex items-center justify-center border-2 border-white font-black">{cart.length}</span>}
+            <ShoppingBag size={20}/> <span className="font-black text-sm hidden sm:block">${subTotal.toFixed(1)}</span>
+            {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-blue-500 w-5 h-5 rounded-full text-[10px] flex items-center justify-center border-2 border-white font-black">{cart.reduce((a,b)=>a+(b.qty||1),0)}</span>}
           </button>
           <div className="relative">
             <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="w-11 h-11 bg-white border-2 border-slate-100 rounded-2xl overflow-hidden active:scale-90 transition-transform">
@@ -395,6 +409,79 @@ const FutureStore = () => {
             </motion.div>
           )}
 
+          {/* --- ENHANCED CART VIEW --- */}
+          {view === 'cart' && (
+            <motion.div key="cart" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-6xl mx-auto p-4">
+               <div className="flex justify-between items-end mb-10">
+                  <div>
+                    <h2 className="text-4xl font-black mb-2 flex items-center gap-4">سلة المشتريات <ShoppingBag className="text-blue-600" size={32}/></h2>
+                    <p className="text-slate-400 font-bold">لديك {cart.length} منتجات فريدة في سلتك</p>
+                  </div>
+                  {cart.length > 0 && <button onClick={clearCart} className="text-red-500 font-black text-xs hover:underline flex items-center gap-2"><Trash2 size={16}/> إفراغ السلة</button>}
+               </div>
+
+               {cart.length === 0 ? (
+                 <div className="bg-white rounded-[4rem] p-20 text-center border border-dashed border-slate-200">
+                    <div className="w-32 h-32 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300"><ShoppingBag size={64}/></div>
+                    <h3 className="text-2xl font-black mb-2">سلتك فارغة تماماً!</h3>
+                    <p className="text-slate-400 font-bold mb-8">يبدو أنك لم تضف أي منتجات بعد، ابدأ بالتسوق الآن</p>
+                    <button onClick={() => setView('home')} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black shadow-xl shadow-blue-100 hover:scale-105 transition-all">العودة للمتجر</button>
+                 </div>
+               ) : (
+                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                    <div className="lg:col-span-2 space-y-4">
+                        {cart.map((item) => (
+                            <motion.div layout key={item.cartId} className="bg-white p-6 rounded-[3rem] flex flex-col sm:flex-row items-center gap-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                                <img src={item.image} className="w-28 h-28 rounded-[2.5rem] object-cover shadow-inner" alt=""/>
+                                <div className="flex-1 text-center sm:text-right">
+                                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{item.category}</span>
+                                    <h4 className="font-black text-lg mt-1 line-clamp-1">{item.name}</h4>
+                                    <p className="text-slate-400 text-xs font-bold">بواسطة: {item.sellerName}</p>
+                                </div>
+                                <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                                    <button onClick={() => updateCartQty(item.cartId, -1)} className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm hover:bg-red-50 hover:text-red-500 transition-colors"><Minus size={16}/></button>
+                                    <span className="w-8 text-center font-black text-lg">{item.qty || 1}</span>
+                                    <button onClick={() => updateCartQty(item.cartId, 1)} className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-50 hover:text-blue-600 transition-colors"><Plus size={16}/></button>
+                                </div>
+                                <div className="text-center sm:text-left min-w-[100px]">
+                                    <p className="text-[10px] text-slate-400 font-black uppercase">المجموع</p>
+                                    <span className="text-xl font-black text-slate-900">${((item.price) * (item.qty || 1)).toFixed(2)}</span>
+                                </div>
+                                <button onClick={() => removeFromCart(item.cartId)} className="p-4 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
+                            </motion.div>
+                        ))}
+                    </div>
+
+                    <div className="space-y-6">
+                        <div className="bg-slate-900 rounded-[3.5rem] p-8 text-white shadow-2xl sticky top-32">
+                            <h3 className="text-xl font-black mb-8 flex items-center gap-3 border-b border-white/10 pb-4"><Receipt size={24}/> ملخص الطلب</h3>
+                            <div className="space-y-4 mb-8">
+                                <div className="flex justify-between font-bold text-slate-400"><span>المجموع الفرعي</span><span className="text-white">${subTotal.toFixed(2)}</span></div>
+                                <div className="flex justify-between font-bold text-slate-400"><span>رسوم التوصيل</span><span className="text-white">{shipping === 0 ? "مجاني" : `$${shipping.toFixed(2)}`}</span></div>
+                                <div className="flex justify-between font-bold text-slate-400"><span>الضريبة (0%)</span><span className="text-white">$0.00</span></div>
+                            </div>
+                            <div className="flex justify-between items-end border-t border-white/10 pt-6 mb-8">
+                                <span className="font-black text-slate-400">الإجمالي النهائي</span>
+                                <span className="text-4xl font-black text-blue-400">${total.toFixed(2)}</span>
+                            </div>
+                            <div className="bg-white/5 p-4 rounded-3xl border border-white/10 mb-8">
+                                <p className="text-[10px] font-black text-blue-400 uppercase mb-2 flex items-center gap-2"><Truck size={14}/> معلومات التوصيل</p>
+                                <p className="text-xs font-bold text-slate-300">{userData.address || "لم يتم تحديد عنوان"}</p>
+                            </div>
+                            <button className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black text-xl shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3">
+                                <ShieldCheck /> تأكيد الدفع والطلب
+                            </button>
+                            <p className="text-[10px] text-center mt-6 text-slate-500 font-bold italic">جميع المعاملات محمية ومشفرة عبر FUTURE NET</p>
+                        </div>
+                    </div>
+                 </div>
+               )}
+            </motion.div>
+          )}
+
+          {/* ... باقي الأكواد (Admin, Chat, Profile, SelectedProduct) تبقى كما هي للحفاظ على الوظائف ... */}
+          {/* تم إدراجها هنا لضمان عمل الملف بالكامل */}
+
           {view === 'admin' && (
             <motion.div key="admin" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-xl mx-auto bg-white p-10 rounded-[4rem] shadow-2xl border border-slate-50">
                <div className="flex justify-between items-center mb-10"><h2 className="text-3xl font-black">بيع منتج جديد</h2><button onClick={() => setView('home')} className="p-4 bg-slate-100 rounded-3xl"><X/></button></div>
@@ -406,7 +493,7 @@ const FutureStore = () => {
                  </div>
                  <div className="space-y-2"><label className="text-xs font-black text-slate-400 mr-2 uppercase">رابط الصورة (URL)</label><input type="url" placeholder="https://..." required className="w-full p-6 bg-slate-50 border border-transparent rounded-[2rem] outline-none font-bold" onChange={e => setNewProduct({...newProduct, image: e.target.value})} /></div>
                  <div className="p-8 bg-blue-50 rounded-[3rem] space-y-6">
-                    <div className="flex items-center gap-3 text-blue-600 mb-2"><CreditCard size={20}/><h4 className="font-black text-sm">بيانات الدفع</h4></div>
+                    <div className="flex items-center gap-3 text-blue-600 mb-2"><CardIcon size={20}/><h4 className="font-black text-sm">بيانات الدفع</h4></div>
                     {['kuraimi', 'qutaibi', 'paypal'].map(m => (
                         <div key={m} className="space-y-3">
                             <button type="button" onClick={() => setNewProduct({...newProduct, paymentMethods: {...newProduct.paymentMethods, [m]: !newProduct.paymentMethods[m]}})} className={`w-full p-4 rounded-2xl flex justify-between items-center transition-all ${newProduct.paymentMethods[m] ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 shadow-sm'}`}><span className="font-black text-xs uppercase">{m}</span>{newProduct.paymentMethods[m] ? <CheckCircle size={16}/> : <Plus size={16}/>}</button>
@@ -451,6 +538,25 @@ const FutureStore = () => {
                 </div>
             </motion.div>
           )}
+
+          {view === 'profile' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto space-y-8 p-4">
+                <div className="bg-white rounded-[4rem] shadow-2xl border border-slate-50 overflow-hidden">
+                    <div className="h-48 bg-gradient-to-br from-blue-700 via-blue-50 to-cyan-400" />
+                    <div className="px-10 pb-12 -mt-20 text-center">
+                        <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-40 h-40 rounded-[3rem] border-[10px] border-white shadow-2xl object-cover mx-auto mb-6" alt=""/>
+                        <h2 className="text-3xl font-black text-slate-900">{user?.displayName}</h2>
+                        <p className="text-slate-400 font-bold text-sm mb-8">{user?.email}</p>
+                        <div className="space-y-6 text-right">
+                            <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">العنوان</label><input type="text" value={editAddress} onChange={e => setEditAddress(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none" /></div>
+                            <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">الواتساب</label><input type="text" value={editPhone} onChange={e => setEditPhone(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none" /></div>
+                            <button onClick={handleUpdateProfile} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black hover:scale-[1.02] active:scale-95 transition-all">حفظ التغييرات</button>
+                        </div>
+                    </div>
+                </div>
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </main>
 
@@ -461,7 +567,7 @@ const FutureStore = () => {
             <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative bg-white w-full max-w-3xl rounded-t-[5rem] p-10 max-h-[90vh] overflow-y-auto shadow-2xl">
               <div className="flex justify-between items-center mb-8"><button onClick={() => setSelectedProduct(null)} className="p-5 bg-slate-100 rounded-3xl text-slate-500 hover:bg-red-50 hover:text-red-500 transition-all"><X size={28}/></button>
                 <div className="flex gap-3">
-                   {user?.uid === selectedProduct.sellerId && <button onClick={() => deleteProduct(selectedProduct.id)} className="px-8 py-4 bg-red-50 text-red-600 rounded-[2rem] font-black text-xs border border-red-100 flex items-center gap-2"><Trash2 size={16}/> حذف من المتجر</button>}
+                   {user?.uid === selectedProduct.sellerId && <button onClick={() => deleteProduct(selectedProduct.id)} className="px-8 py-4 bg-red-50 text-red-600 rounded-[2rem] font-black text-xs border border-red-100 flex items-center gap-2"><Trash2 size={16}/> حذف المنتج</button>}
                    <div className="bg-blue-600 text-white px-6 py-4 rounded-[2rem] flex items-center gap-2 shadow-lg"><ShieldCheck size={18}/><span className="text-[10px] font-black uppercase">ضمان FUTURE</span></div>
                 </div>
               </div>
@@ -482,16 +588,15 @@ const FutureStore = () => {
                     <div className="flex items-baseline gap-2 justify-end"><span className="text-4xl font-black text-blue-600">${selectedProduct.price}</span><span className="text-slate-400 line-through text-sm font-bold">${(selectedProduct.price * 1.2).toFixed(2)}</span></div>
                     <div className="space-y-4 text-right"><h4 className="font-black text-sm flex items-center gap-2 justify-end underline decoration-blue-500 underline-offset-4"><Info size={16}/> تفاصيل المنتج</h4><p className="text-slate-500 text-sm leading-relaxed font-bold">{selectedProduct.desc || "لا يوجد وصف تقني لهذا المنتج."}</p></div>
                     <div className="bg-slate-900 text-white p-8 rounded-[3rem] space-y-4 shadow-xl text-right">
-                        <h4 className="text-xs font-black flex items-center gap-2 text-blue-400 uppercase tracking-widest justify-end"><CreditCard size={16}/> خيارات الدفع</h4>
+                        <h4 className="text-xs font-black flex items-center gap-2 text-blue-400 uppercase tracking-widest justify-end"><CardIcon size={16}/> خيارات الدفع</h4>
                         <div className="space-y-3">{Object.entries(selectedProduct.paymentMethods || {}).map(([method, active]) => active && (
                                 <div key={method} className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/10"><span className="text-[10px] font-black uppercase text-slate-300">{method}</span><span className="text-xs font-black text-blue-400 select-all">{selectedProduct.paymentDetails?.[method] || "متوفر"}</span></div>
                         ))}</div>
                     </div>
-                    <button onClick={() => addToCart(selectedProduct)} className="w-full bg-blue-600 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl shadow-blue-100 flex items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all"><ShoppingCart size={24}/> شراء المنتج الآن</button>
+                    <button onClick={() => addToCart(selectedProduct)} className="w-full bg-blue-600 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl shadow-blue-100 flex items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all"><ShoppingCart size={24}/> إضافة للسلة</button>
                 </div>
               </div>
 
-              {/* Reviews Section - REWRITTEN FOR EDITING */}
               <div className="mt-16 pt-10 border-t border-slate-100 space-y-8 text-right">
                  <h3 className="text-2xl font-black">تقييمات العملاء</h3>
                  <div className="bg-slate-50 p-8 rounded-[3rem] space-y-4">
@@ -508,7 +613,7 @@ const FutureStore = () => {
                     </div>
                  </div>
 
-                 <div className="grid md:grid-cols-2 gap-6">
+                 <div className="grid md:grid-cols-2 gap-6 pb-20">
                     {reviews.map((r) => (
                         <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-3">
                             <div className="flex gap-4">
@@ -536,45 +641,7 @@ const FutureStore = () => {
         )}
       </AnimatePresence>
 
-      {/* Profile & Footer - SAME AS BEFORE */}
-      {view === 'profile' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto space-y-8 p-4">
-            <div className="bg-white rounded-[4rem] shadow-2xl border border-slate-50 overflow-hidden">
-                <div className="h-48 bg-gradient-to-br from-blue-700 via-blue-50 to-cyan-400" />
-                <div className="px-10 pb-12 -mt-20 text-center">
-                    <img src={user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} className="w-40 h-40 rounded-[3rem] border-[10px] border-white shadow-2xl object-cover mx-auto mb-6" alt=""/>
-                    <h2 className="text-3xl font-black text-slate-900">{user?.displayName}</h2>
-                    <p className="text-slate-400 font-bold text-sm mb-8">{user?.email}</p>
-                    <div className="space-y-6 text-right">
-                        <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">العنوان</label><input type="text" value={editAddress} onChange={e => setEditAddress(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none" /></div>
-                        <div className="space-y-3"><label className="text-[11px] font-black text-slate-500 mr-4">الواتساب</label><input type="text" value={editPhone} onChange={e => setEditPhone(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] font-bold outline-none" /></div>
-                        <button onClick={handleUpdateProfile} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black">حفظ التغييرات</button>
-                    </div>
-                </div>
-            </div>
-        </motion.div>
-      )}
-
-      {view === 'cart' && cart.length > 0 && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-4xl mx-auto p-4 space-y-6 text-right">
-            <h2 className="text-4xl font-black mb-8">سلتك</h2>
-            <div className="space-y-4">
-                {cart.map((item) => (
-                    <div key={item.cartId} className="bg-white p-6 rounded-[3rem] flex items-center gap-6 border border-slate-100">
-                        <img src={item.image} className="w-24 h-24 rounded-[2rem] object-cover" alt=""/>
-                        <div className="flex-1"><h4 className="font-black text-sm">{item.name}</h4><span className="text-blue-600 font-black">${item.price}</span></div>
-                        <button onClick={() => removeFromCart(item.cartId)} className="p-5 text-red-500 bg-red-50 rounded-[1.8rem]"><Trash2/></button>
-                    </div>
-                ))}
-            </div>
-            <div className="bg-slate-900 rounded-[4rem] p-12 text-white flex justify-between items-center mt-12">
-                <div className="text-right"><p className="text-slate-400 font-bold text-sm">الإجمالي</p><h3 className="text-6xl font-black">${totalPrice.toFixed(2)}</h3></div>
-                <button className="bg-blue-600 px-16 py-7 rounded-[2.5rem] font-black text-2xl">تأكيد الطلب</button>
-            </div>
-        </motion.div>
-      )}
-
-      <footer className="mt-20 py-10 text-center border-t border-slate-100"><span className="font-black text-sm tracking-widest text-slate-900">FUTURE STORE © 2026</span></footer>
+      <footer className="mt-20 py-10 text-center border-t border-slate-100 opacity-50"><span className="font-black text-xs tracking-widest text-slate-900 uppercase">Future Store Yemen © 2026</span></footer>
     </div>
   );
 };
