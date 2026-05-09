@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShoppingCart, Star, Trash2, CreditCard, X, LogIn, LogOut, MessageCircle,
-  Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3
+  Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3, Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -35,13 +35,16 @@ const FutureStore = () => {
   const [activeCategory, setActiveCategory] = useState("الكل");
   const [toast, setToast] = useState(null);
   
+  // حالات البحث
+  const [searchQuery, setSearchQuery] = useState("");
+
   const [chatInfo, setChatInfo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [msgInput, setMsgInput] = useState("");
   const [reviews, setReviews] = useState([]);
   const [reviewInput, setReviewInput] = useState("");
   const [ratingInput, setRatingInput] = useState(5);
-  const [editingReview, setEditingReview] = useState(null); // حالة لتعديل التعليق
+  const [editingReview, setEditingReview] = useState(null); 
 
   const [newProduct, setNewProduct] = useState({ 
     name: '', price: '', image: '', category: 'Networking', desc: '', 
@@ -133,10 +136,8 @@ const FutureStore = () => {
     }
   };
 
-  // نظام التعليقات المطور
   const handleReviewAction = async () => {
     if(!user || !reviewInput) return;
-    
     const reviewData = {
       text: reviewInput, 
       rating: ratingInput, 
@@ -145,7 +146,6 @@ const FutureStore = () => {
       userId: user.uid,
       date: Date.now()
     };
-
     try {
       if (editingReview) {
         await updateDoc(doc(db, `products/${selectedProduct.id}/reviews`, editingReview.id), reviewData);
@@ -175,12 +175,23 @@ const FutureStore = () => {
     setMsgInput("");
   };
 
+  // منطق البحث الذكي
+  const filteredProducts = products.filter(p => {
+    const matchesCategory = activeCategory === "الكل" || p.category === activeCategory;
+    const searchTerms = searchQuery.toLowerCase().split(" ");
+    const matchesSearch = searchTerms.every(term => 
+      p.name.toLowerCase().includes(term) || 
+      (p.desc && p.desc.toLowerCase().includes(term)) ||
+      p.category.toLowerCase().includes(term)
+    );
+    return matchesCategory && matchesSearch;
+  });
+
   const totalPrice = cart.reduce((s, i) => s + (i.price * (i.qty || 1)), 0);
 
   return (
     <div className="min-h-screen bg-[#FAFBFF] text-slate-900 pb-20" dir="rtl">
       
-      {/* Toast Notification */}
       <AnimatePresence>
         {toast && (
           <motion.div initial={{ y: -50, opacity: 0 }} animate={{ y: 20, opacity: 1 }} exit={{ y: -50, opacity: 0 }} className="fixed top-0 left-1/2 -translate-x-1/2 z-[400] bg-slate-900 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-3 font-bold border border-slate-700">
@@ -189,9 +200,8 @@ const FutureStore = () => {
         )}
       </AnimatePresence>
 
-      {/* Modern Top Navigation */}
       <nav className="sticky top-0 bg-white/70 backdrop-blur-3xl z-[150] px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('home')}>
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setView('home'); setSearchQuery(""); }}>
           <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl flex items-center justify-center text-white shadow-lg">
             <Package size={24} />
           </div>
@@ -211,9 +221,21 @@ const FutureStore = () => {
       </nav>
 
       <AnimatePresence mode="wait">
-        {/* Main Store View */}
         {view === 'home' && (
           <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 max-w-6xl mx-auto space-y-8">
+            
+            {/* Intelligent Search Bar */}
+            <div className="relative group max-w-2xl mx-auto">
+              <Search className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={20}/>
+              <input 
+                type="text" 
+                placeholder="ابحث عن شواحن، راوترات، أو أجهزة ألعاب..." 
+                className="w-full bg-white border border-slate-100 p-6 pr-14 rounded-[2rem] shadow-sm outline-none focus:ring-4 focus:ring-blue-50 font-bold transition-all"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
             <div className="flex gap-3 overflow-x-auto no-scrollbar py-2">
               {["الكل", "Networking", "Electronics", "Gaming"].map(c => (
                 <button key={c} onClick={() => setActiveCategory(c)} className={`px-8 py-4 rounded-2xl text-sm font-black transition-all ${activeCategory === c ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'bg-white text-slate-400 border border-slate-50'}`}>{c}</button>
@@ -221,7 +243,7 @@ const FutureStore = () => {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {products.filter(p => activeCategory === "الكل" || p.category === activeCategory).map(product => (
+              {filteredProducts.map(product => (
                 <motion.div layout key={product.id} className="bg-white p-4 rounded-[2.5rem] shadow-sm border border-slate-50 relative group hover:shadow-xl transition-all">
                   <div className="aspect-square rounded-[2rem] overflow-hidden mb-4 bg-slate-50 cursor-pointer" onClick={() => setSelectedProduct(product)}>
                     <img src={product.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
@@ -234,6 +256,12 @@ const FutureStore = () => {
                 </motion.div>
               ))}
             </div>
+            
+            {filteredProducts.length === 0 && (
+              <div className="text-center py-20 bg-white rounded-[3rem] border border-slate-50">
+                <p className="text-slate-400 font-black">لم نجد أي منتجات تطابق بحثك..</p>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -262,10 +290,7 @@ const FutureStore = () => {
                    </div>
                  ))}
                  <div className="p-8 bg-slate-900 rounded-[2.5rem] text-white flex justify-between items-center mt-10">
-                   <div>
-                     <p className="text-xs text-slate-400 font-bold">إجمالي الحساب:</p>
-                     <h3 className="text-3xl font-black">${totalPrice}</h3>
-                   </div>
+                   <div><p className="text-xs text-slate-400 font-bold">إجمالي الحساب:</p><h3 className="text-3xl font-black">${totalPrice}</h3></div>
                    <button className="bg-blue-600 px-10 py-5 rounded-2xl font-black shadow-xl">تأكيد الطلب</button>
                  </div>
                </div>
@@ -283,21 +308,11 @@ const FutureStore = () => {
                </div>
                <h2 className="text-2xl font-black mb-1">{user?.displayName}</h2>
                <p className="text-slate-400 font-bold mb-8">{user?.email}</p>
-               
                <div className="grid grid-cols-2 gap-4 mb-8">
-                  <div className="bg-slate-50 p-4 rounded-3xl">
-                     <p className="text-xs font-bold text-slate-400">الطلبات</p>
-                     <p className="text-xl font-black">0</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-3xl">
-                     <p className="text-xs font-bold text-slate-400">السلة</p>
-                     <p className="text-xl font-black">{cart.length}</p>
-                  </div>
+                  <div className="bg-slate-50 p-4 rounded-3xl"><p className="text-xs font-bold text-slate-400">الطلبات</p><p className="text-xl font-black">0</p></div>
+                  <div className="bg-slate-50 p-4 rounded-3xl"><p className="text-xs font-bold text-slate-400">السلة</p><p className="text-xl font-black">{cart.length}</p></div>
                </div>
-
-               <button onClick={() => { signOut(auth); setView('home'); }} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black flex items-center justify-center gap-3 hover:bg-red-600 hover:text-white transition-all">
-                  <LogOut size={20}/> تسجيل الخروج
-               </button>
+               <button onClick={() => { signOut(auth); setView('home'); }} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black flex items-center justify-center gap-3 hover:bg-red-600 hover:text-white transition-all"><LogOut size={20}/> تسجيل الخروج</button>
                <button onClick={() => setView('home')} className="w-full mt-4 py-4 bg-slate-100 rounded-3xl font-black">العودة للمتجر</button>
             </div>
           </motion.div>
@@ -306,25 +321,18 @@ const FutureStore = () => {
         {/* Add Product Interface */}
         {view === 'admin' && (
           <motion.div key="admin" className="p-6 max-w-md mx-auto space-y-6">
-             <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-black">إضافة منتج جديد</h2>
-                <button onClick={() => setView('home')} className="p-3 bg-slate-100 rounded-full"><X/></button>
-             </div>
+             <div className="flex justify-between items-center"><h2 className="text-2xl font-black">إضافة منتج جديد</h2><button onClick={() => setView('home')} className="p-3 bg-slate-100 rounded-full"><X/></button></div>
              <form onSubmit={handleAddProduct} className="space-y-4">
                <input type="text" placeholder="اسم المنتج" required className="w-full p-5 bg-white border border-slate-100 rounded-3xl outline-none" onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
                <input type="number" placeholder="السعر $" required className="w-full p-5 bg-white border border-slate-100 rounded-3xl outline-none" onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
                <input type="url" placeholder="رابط صورة المنتج" required className="w-full p-5 bg-white border border-slate-100 rounded-3xl outline-none" onChange={e => setNewProduct({...newProduct, image: e.target.value})} />
-               <select className="w-full p-5 bg-white border border-slate-100 rounded-3xl outline-none font-bold appearance-none" onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
-                 <option>Networking</option><option>Electronics</option><option>Gaming</option>
-               </select>
+               <select className="w-full p-5 bg-white border border-slate-100 rounded-3xl outline-none font-bold appearance-none" onChange={e => setNewProduct({...newProduct, category: e.target.value})}><option>Networking</option><option>Electronics</option><option>Gaming</option></select>
                <div className="p-5 bg-white border border-slate-100 rounded-3xl space-y-3">
                  <p className="text-xs font-black text-slate-400">طرق الدفع المدعومة:</p>
                  <div className="flex flex-wrap gap-2">
                    {['kuraimi', 'qutaibi', 'paypal'].map(m => (
                      <button key={m} type="button" onClick={() => setNewProduct({...newProduct, paymentMethods: {...newProduct.paymentMethods, [m]: !newProduct.paymentMethods[m]}})} 
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black border transition-all ${newProduct.paymentMethods[m] ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
-                       {m.toUpperCase()}
-                     </button>
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black border transition-all ${newProduct.paymentMethods[m] ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>{m.toUpperCase()}</button>
                    ))}
                  </div>
                </div>
@@ -340,10 +348,7 @@ const FutureStore = () => {
             <div className="p-6 bg-slate-900 text-white flex justify-between items-center shadow-2xl">
               <div className="flex items-center gap-4">
                 <img src={chatInfo.sellerPhoto} className="w-12 h-12 rounded-2xl object-cover border-2 border-blue-500" />
-                <div>
-                  <h3 className="font-black">محادثة: {chatInfo.sellerName}</h3>
-                  <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">{chatInfo.productName}</p>
-                </div>
+                <div><h3 className="font-black">محادثة: {chatInfo.sellerName}</h3><p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">{chatInfo.productName}</p></div>
               </div>
               <button onClick={() => setView('home')} className="p-3 bg-white/10 rounded-full"><X/></button>
             </div>
@@ -369,7 +374,6 @@ const FutureStore = () => {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedProduct(null)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
             <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative bg-white w-full max-w-2xl rounded-t-[4rem] p-8 max-h-[95vh] overflow-y-auto shadow-2xl">
               
-              {/* Close & Seller Actions */}
               <div className="flex justify-between items-center mb-6">
                  <button onClick={() => setSelectedProduct(null)} className="p-4 bg-slate-100 rounded-2xl text-slate-500 hover:bg-red-50 hover:text-red-500 transition-all"><X size={24}/></button>
                  <div className="flex gap-2">
@@ -377,76 +381,50 @@ const FutureStore = () => {
                      <button onClick={() => deleteProduct(selectedProduct.id)} className="flex items-center gap-2 px-6 py-3 bg-red-50 text-red-600 rounded-2xl font-black text-xs border border-red-100"><Trash2 size={16}/> حذف المنتج</button>
                    )}
                    <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-2xl border border-blue-100">
-                      <ShieldCheck size={16} className="text-blue-600"/>
-                      <span className="text-[10px] font-black text-blue-600 uppercase">بائع موثوق</span>
+                      <ShieldCheck size={16} className="text-blue-600"/><span className="text-[10px] font-black text-blue-600 uppercase">بائع موثوق</span>
                    </div>
                  </div>
               </div>
 
-              {/* Product Header */}
               <div className="space-y-8">
-                <div className="aspect-video w-full rounded-[3rem] overflow-hidden shadow-2xl border-8 border-slate-50">
-                  <img src={selectedProduct.image} className="w-full h-full object-cover" alt="" />
-                </div>
+                <div className="aspect-video w-full rounded-[3rem] overflow-hidden shadow-2xl border-8 border-slate-50"><img src={selectedProduct.image} className="w-full h-full object-cover" alt="" /></div>
 
                 <div className="flex justify-between items-start">
                   <div>
                     <h2 className="text-3xl font-black text-slate-900 mb-2">{selectedProduct.name}</h2>
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-xl border border-yellow-100">
-                        <Star size={14} className="fill-yellow-400 text-yellow-400" />
-                        <span className="font-black text-xs text-yellow-700">{selectedProduct.rating}</span>
-                      </div>
+                      <div className="flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-xl border border-yellow-100"><Star size={14} className="fill-yellow-400 text-yellow-400" /><span className="font-black text-xs text-yellow-700">{selectedProduct.rating}</span></div>
                       <span className="text-xs font-bold text-slate-400">({reviews.length} مراجعة)</span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">السعر الحالي</p>
-                    <span className="text-4xl font-black text-blue-600 tracking-tighter">${selectedProduct.price}</span>
-                  </div>
+                  <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">السعر الحالي</p><span className="text-4xl font-black text-blue-600 tracking-tighter">${selectedProduct.price}</span></div>
                 </div>
 
-                {/* Seller Info Section */}
                 <div className="flex items-center justify-between p-6 bg-slate-50 rounded-[2.5rem] border border-slate-100">
                    <div className="flex items-center gap-4">
                       <img src={selectedProduct.sellerPhoto} className="w-14 h-14 rounded-2xl object-cover border-2 border-white shadow-md" />
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">الناشر:</p>
-                        <h4 className="font-black text-slate-800">{selectedProduct.sellerName}</h4>
-                      </div>
+                      <div><p className="text-[10px] text-slate-400 font-bold uppercase">الناشر:</p><h4 className="font-black text-slate-800">{selectedProduct.sellerName}</h4></div>
                    </div>
-                   <button onClick={() => { setChatInfo({ id: `${user.uid}_${selectedProduct.sellerId}`, productName: selectedProduct.name, sellerName: selectedProduct.sellerName, sellerPhoto: selectedProduct.sellerPhoto }); setView('chat'); setSelectedProduct(null); }} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-colors shadow-lg"><MessageCircle size={22}/></button>
+                   
+                   {/* منع ظهور زر المحادثة إذا كان المستخدم هو البائع */}
+                   {user?.uid !== selectedProduct.sellerId && (
+                     <button onClick={() => { setChatInfo({ id: `${user.uid}_${selectedProduct.sellerId}`, productName: selectedProduct.name, sellerName: selectedProduct.sellerName, sellerPhoto: selectedProduct.sellerPhoto }); setView('chat'); setSelectedProduct(null); }} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-colors shadow-lg"><MessageCircle size={22}/></button>
+                   )}
                 </div>
 
-                {/* Description & Payment */}
-                <div className="space-y-4">
-                   <h4 className="font-black text-lg">عن هذا المنتج</h4>
-                   <p className="text-slate-500 leading-relaxed font-medium">{selectedProduct.desc || "لا يوجد وصف مفصل متاح لهذا المنتج حالياً."}</p>
-                </div>
+                <div className="space-y-4"><h4 className="font-black text-lg">عن هذا المنتج</h4><p className="text-slate-500 leading-relaxed font-medium">{selectedProduct.desc || "لا يوجد وصف مفصل متاح لهذا المنتج حالياً."}</p></div>
 
-                {/* Main Action Button */}
-                <button onClick={() => addToCart(selectedProduct)} className="w-full bg-blue-600 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl shadow-blue-100 flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all">
-                  <ShoppingCart size={24}/> أضف إلى السلة الآن
-                </button>
+                <button onClick={() => addToCart(selectedProduct)} className="w-full bg-blue-600 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl shadow-blue-100 flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all"><ShoppingCart size={24}/> أضف إلى السلة الآن</button>
 
-                {/* Reviews System */}
                 <div className="border-t border-slate-100 pt-10 space-y-6">
                   <h4 className="text-xl font-black">تعليقات المشترين</h4>
-                  
-                  {/* Rating Selector & Input */}
                   <div className="bg-slate-50 p-6 rounded-[2.5rem] space-y-4">
                     <div className="flex justify-center gap-2 mb-2">
-                       {[1, 2, 3, 4, 5].map((star) => (
-                         <button key={star} onClick={() => setRatingInput(star)} className="transition-transform active:scale-90">
-                           <Star size={32} className={`${ratingInput >= star ? 'fill-yellow-400 text-yellow-400' : 'text-slate-200'}`} />
-                         </button>
-                       ))}
+                       {[1, 2, 3, 4, 5].map((star) => (<button key={star} onClick={() => setRatingInput(star)} className="transition-transform active:scale-90"><Star size={32} className={`${ratingInput >= star ? 'fill-yellow-400 text-yellow-400' : 'text-slate-200'}`} /></button>))}
                     </div>
                     <div className="flex gap-2">
                       <input type="text" placeholder={editingReview ? "تعديل تعليقك..." : "اكتب مراجعتك هنا..."} className="flex-1 bg-white p-5 rounded-2xl outline-none font-bold text-xs shadow-sm" value={reviewInput} onChange={e => setReviewInput(e.target.value)} />
-                      <button onClick={handleReviewAction} className="bg-slate-900 text-white px-8 rounded-2xl font-black text-xs">
-                        {editingReview ? "تحديث" : "نشر"}
-                      </button>
+                      <button onClick={handleReviewAction} className="bg-slate-900 text-white px-8 rounded-2xl font-black text-xs">{editingReview ? "تحديث" : "نشر"}</button>
                     </div>
                   </div>
 
@@ -455,16 +433,9 @@ const FutureStore = () => {
                       <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-50 flex gap-4 relative">
                         <img src={r.userPhoto} className="w-10 h-10 rounded-xl" />
                         <div className="flex-1">
-                          <div className="flex justify-between mb-1">
-                            <h5 className="font-black text-[11px]">{r.userName}</h5>
-                            <div className="flex text-yellow-400">
-                               {[...Array(r.rating)].map((_, idx) => <Star key={idx} size={10} fill="currentColor"/>)}
-                            </div>
-                          </div>
+                          <div className="flex justify-between mb-1"><h5 className="font-black text-[11px]">{r.userName}</h5><div className="flex text-yellow-400">{[...Array(r.rating)].map((_, idx) => <Star key={idx} size={10} fill="currentColor"/>)}</div></div>
                           <p className="text-xs text-slate-500 font-medium">{r.text}</p>
                         </div>
-                        
-                        {/* Edit/Delete for Owner */}
                         {user?.uid === r.userId && (
                           <div className="absolute left-4 bottom-4 flex gap-2">
                             <button onClick={() => { setEditingReview(r); setReviewInput(r.text); setRatingInput(r.rating); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Edit3 size={14}/></button>
