@@ -106,7 +106,6 @@ const FutureStore = () => {
     return () => { unsubProducts(); unsubAuth(); };
   }, []);
 
-  // Sync Chat Messages
   useEffect(() => {
     if (chatInfo && user) {
       const q = query(collection(db, `chats/${chatInfo.id}/messages`), orderBy("time", "asc"));
@@ -156,8 +155,14 @@ const FutureStore = () => {
     if (!user) return showToast("سجل دخولك أولاً", "error");
     try {
       await addDoc(collection(db, "products"), { 
-        ...newProduct, price: Number(newProduct.price), sellerId: user.uid, 
-        sellerName: user.displayName, sellerPhoto: user.photoURL, rating: 5, createdAt: Date.now() 
+        ...newProduct, 
+        price: Number(newProduct.price), 
+        sellerId: user.uid, 
+        sellerName: user.displayName, 
+        sellerPhoto: user.photoURL, 
+        avgRating: 0, // تقييم افتراضي 0
+        reviewCount: 0, // عدد التقييمات افتراضي 0
+        createdAt: Date.now() 
       });
       showToast("تم نشر المنتج بنجاح ✅");
       setView('home');
@@ -172,7 +177,7 @@ const FutureStore = () => {
     }
   };
 
-  // --- Cart Core Functions (MODIFIED) ---
+  // --- Cart Core Functions ---
 
   const addToCart = async (product) => {
     if (!user) return handleLogin();
@@ -181,13 +186,11 @@ const FutureStore = () => {
       let newCart;
 
       if (existingItem) {
-        // If product exists, increase quantity
         newCart = cart.map(item => 
           item.id === product.id ? { ...item, qty: (item.qty || 1) + 1 } : item
         );
         showToast(`تم زيادة كمية ${product.name}`);
       } else {
-        // If product is new, add it with qty 1
         const newCartItem = { ...product, cartId: Date.now(), qty: 1 };
         newCart = [...cart, newCartItem];
         showToast("تمت الإضافة للسلة 🛒");
@@ -222,7 +225,8 @@ const FutureStore = () => {
     }
   };
 
-  // --- Chat & Review Functions (Same as before) ---
+  // --- Chat & Review Functions ---
+
   const startChat = async (product) => {
     if(!user) return handleLogin();
     if(user.uid === product.sellerId) return showToast("لا يمكنك مراسلة نفسك", "info");
@@ -232,7 +236,7 @@ const FutureStore = () => {
         lastMsg: "بدأ المحادثة...", time: Date.now(),
         users: { [user.uid]: { name: user.displayName, photo: user.photoURL }, [product.sellerId]: { name: product.sellerName, photo: product.sellerPhoto } }
     }, { merge: true });
-    setChatInfo({ id: chatId, productName: product.name, sellerName: product.sellerName, sellerPhoto: product.sellerPhoto });
+    setChatInfo({ id: chatId, productName: product.name, sellerName: info.name, sellerPhoto: info.photo });
     setView('chat');
     setSelectedProduct(null);
   };
@@ -247,24 +251,50 @@ const FutureStore = () => {
     } catch (e) { showToast("فشل إرسال الرسالة", "error"); }
   };
 
+  // وظيفة تحديث إحصائيات التقييم في وثيقة المنتج
+  const updateProductRatingStats = async (productId, newReviews) => {
+    const count = newReviews.length;
+    const avg = count > 0 ? (newReviews.reduce((acc, curr) => acc + curr.rating, 0) / count) : 0;
+    await updateDoc(doc(db, "products", productId), {
+      avgRating: Number(avg.toFixed(1)),
+      reviewCount: count
+    });
+  };
+
   const handleReviewAction = async () => {
     if (!user) return handleLogin();
     if (!reviewInput) return showToast("اكتب شيئاً أولاً", "error");
     try {
+      let updatedReviews = [];
       if (isEditingReview) {
-        await updateDoc(doc(db, `products/${selectedProduct.id}/reviews`, isEditingReview), { text: reviewInput, rating: ratingInput, date: Date.now() });
+        await updateDoc(doc(db, `products/${selectedProduct.id}/reviews`, isEditingReview), { 
+          text: reviewInput, rating: ratingInput, date: Date.now() 
+        });
+        updatedReviews = reviews.map(r => r.id === isEditingReview ? { ...r, rating: ratingInput } : r);
         showToast("تم تعديل التقييم");
       } else {
-        await addDoc(collection(db, `products/${selectedProduct.id}/reviews`), { userId: user.uid, userName: user.displayName, userPhoto: user.photoURL, text: reviewInput, rating: ratingInput, date: Date.now() });
+        const docRef = await addDoc(collection(db, `products/${selectedProduct.id}/reviews`), { 
+          userId: user.uid, userName: user.displayName, userPhoto: user.photoURL, 
+          text: reviewInput, rating: ratingInput, date: Date.now() 
+        });
+        updatedReviews = [...reviews, { rating: ratingInput }];
         showToast("شكراً لتقييمك");
       }
+      
+      // تحديث الإحصائيات في المنتج
+      await updateProductRatingStats(selectedProduct.id, updatedReviews);
+      
       setReviewInput(""); setRatingInput(5); setIsEditingReview(null);
     } catch (e) { showToast("فشل العملية", "error"); }
   };
 
   const deleteReview = async (reviewId) => {
-    await deleteDoc(doc(db, `products/${selectedProduct.id}/reviews`, reviewId));
-    showToast("تم حذف التقييم");
+    try {
+        await deleteDoc(doc(db, `products/${selectedProduct.id}/reviews`, reviewId));
+        const remainingReviews = reviews.filter(r => r.id !== reviewId);
+        await updateProductRatingStats(selectedProduct.id, remainingReviews);
+        showToast("تم حذف التقييم");
+    } catch (e) { showToast("فشل الحذف", "error"); }
   };
 
   // --- Helper Components ---
@@ -396,7 +426,10 @@ const FutureStore = () => {
                   <motion.div layout key={product.id} className="bg-white p-4 rounded-[3rem] border border-slate-100 shadow-sm group hover:shadow-2xl transition-all">
                     <div className="aspect-[4/5] rounded-[2.5rem] overflow-hidden mb-4 bg-slate-50 cursor-pointer relative" onClick={() => setSelectedProduct(product)}>
                       <img src={product.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={product.name} />
-                      <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-black shadow-sm">{product.category}</div>
+                      <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-black shadow-sm flex items-center gap-1">
+                        <Star size={10} className="text-yellow-400" fill="currentColor"/>
+                        {product.avgRating || 0}
+                      </div>
                     </div>
                     <h3 className="text-xs font-black px-2 line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
                     <div className="flex justify-between items-center mt-4 px-2">
@@ -409,7 +442,6 @@ const FutureStore = () => {
             </motion.div>
           )}
 
-          {/* --- ENHANCED CART VIEW --- */}
           {view === 'cart' && (
             <motion.div key="cart" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-6xl mx-auto p-4">
                <div className="flex justify-between items-end mb-10">
@@ -458,29 +490,20 @@ const FutureStore = () => {
                             <div className="space-y-4 mb-8">
                                 <div className="flex justify-between font-bold text-slate-400"><span>المجموع الفرعي</span><span className="text-white">${subTotal.toFixed(2)}</span></div>
                                 <div className="flex justify-between font-bold text-slate-400"><span>رسوم التوصيل</span><span className="text-white">{shipping === 0 ? "مجاني" : `$${shipping.toFixed(2)}`}</span></div>
-                                <div className="flex justify-between font-bold text-slate-400"><span>الضريبة (0%)</span><span className="text-white">$0.00</span></div>
                             </div>
                             <div className="flex justify-between items-end border-t border-white/10 pt-6 mb-8">
                                 <span className="font-black text-slate-400">الإجمالي النهائي</span>
                                 <span className="text-4xl font-black text-blue-400">${total.toFixed(2)}</span>
                             </div>
-                            <div className="bg-white/5 p-4 rounded-3xl border border-white/10 mb-8">
-                                <p className="text-[10px] font-black text-blue-400 uppercase mb-2 flex items-center gap-2"><Truck size={14}/> معلومات التوصيل</p>
-                                <p className="text-xs font-bold text-slate-300">{userData.address || "لم يتم تحديد عنوان"}</p>
-                            </div>
                             <button className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black text-xl shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3">
                                 <ShieldCheck /> تأكيد الدفع والطلب
                             </button>
-                            <p className="text-[10px] text-center mt-6 text-slate-500 font-bold italic">جميع المعاملات محمية ومشفرة عبر FUTURE NET</p>
                         </div>
                     </div>
                  </div>
                )}
             </motion.div>
           )}
-
-          {/* ... باقي الأكواد (Admin, Chat, Profile, SelectedProduct) تبقى كما هي للحفاظ على الوظائف ... */}
-          {/* تم إدراجها هنا لضمان عمل الملف بالكامل */}
 
           {view === 'admin' && (
             <motion.div key="admin" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-xl mx-auto bg-white p-10 rounded-[4rem] shadow-2xl border border-slate-50">
@@ -583,22 +606,23 @@ const FutureStore = () => {
                     <div className="space-y-2 text-right">
                         <span className="bg-blue-50 text-blue-600 px-4 py-1 rounded-full text-[10px] font-black">{selectedProduct.category}</span>
                         <h2 className="text-4xl font-black text-slate-900 leading-tight">{selectedProduct.name}</h2>
-                        <div className="flex items-center gap-2 text-yellow-400 justify-end">{[...Array(5)].map((_, i) => <Star key={i} size={14} fill={i < 4 ? "currentColor" : "none"}/>)}<span className="text-slate-400 text-xs font-black mr-2">4.8 (24 تقييم)</span></div>
+                        <div className="flex items-center gap-2 text-yellow-400 justify-end">
+                            {[...Array(5)].map((_, i) => (
+                                <Star key={i} size={14} fill={i < Math.round(selectedProduct.avgRating || 0) ? "currentColor" : "none"}/>
+                            ))}
+                            <span className="text-slate-400 text-xs font-black mr-2">
+                                {selectedProduct.avgRating || 0} ({selectedProduct.reviewCount || 0} تقييم حقيقي)
+                            </span>
+                        </div>
                     </div>
-                    <div className="flex items-baseline gap-2 justify-end"><span className="text-4xl font-black text-blue-600">${selectedProduct.price}</span><span className="text-slate-400 line-through text-sm font-bold">${(selectedProduct.price * 1.2).toFixed(2)}</span></div>
+                    <div className="flex items-baseline gap-2 justify-end"><span className="text-4xl font-black text-blue-600">${selectedProduct.price}</span></div>
                     <div className="space-y-4 text-right"><h4 className="font-black text-sm flex items-center gap-2 justify-end underline decoration-blue-500 underline-offset-4"><Info size={16}/> تفاصيل المنتج</h4><p className="text-slate-500 text-sm leading-relaxed font-bold">{selectedProduct.desc || "لا يوجد وصف تقني لهذا المنتج."}</p></div>
-                    <div className="bg-slate-900 text-white p-8 rounded-[3rem] space-y-4 shadow-xl text-right">
-                        <h4 className="text-xs font-black flex items-center gap-2 text-blue-400 uppercase tracking-widest justify-end"><CardIcon size={16}/> خيارات الدفع</h4>
-                        <div className="space-y-3">{Object.entries(selectedProduct.paymentMethods || {}).map(([method, active]) => active && (
-                                <div key={method} className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/10"><span className="text-[10px] font-black uppercase text-slate-300">{method}</span><span className="text-xs font-black text-blue-400 select-all">{selectedProduct.paymentDetails?.[method] || "متوفر"}</span></div>
-                        ))}</div>
-                    </div>
                     <button onClick={() => addToCart(selectedProduct)} className="w-full bg-blue-600 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl shadow-blue-100 flex items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all"><ShoppingCart size={24}/> إضافة للسلة</button>
                 </div>
               </div>
 
               <div className="mt-16 pt-10 border-t border-slate-100 space-y-8 text-right">
-                 <h3 className="text-2xl font-black">تقييمات العملاء</h3>
+                 <h3 className="text-2xl font-black">تقييمات العملاء الموثقة</h3>
                  <div className="bg-slate-50 p-8 rounded-[3rem] space-y-4">
                     <h4 className="font-black text-sm">{isEditingReview ? 'تعديل تقييمك' : 'أضف تقييمك'}</h4>
                     <div className="flex gap-2 mb-4 justify-end">
@@ -606,18 +630,18 @@ const FutureStore = () => {
                         <button key={star} onClick={() => setRatingInput(star)} className={`${ratingInput >= star ? 'text-yellow-400' : 'text-slate-300'}`}><Star fill={ratingInput >= star ? "currentColor" : "none"} size={24}/></button>
                       ))}
                     </div>
-                    <textarea value={reviewInput} onChange={e => setReviewInput(e.target.value)} placeholder="ما رأيك بالمنتج وبالتعامل مع التاجر؟" className="w-full p-6 rounded-[2rem] border-none outline-none font-bold text-sm h-32" />
+                    <textarea value={reviewInput} onChange={e => setReviewInput(e.target.value)} placeholder="ما رأيك بالمنتج وبالتعامل مع التاجر؟" className="w-full p-6 rounded-[2rem] border-none outline-none font-bold text-sm h-32 shadow-sm" />
                     <div className="flex gap-2">
                         {isEditingReview && <button onClick={() => {setIsEditingReview(null); setReviewInput(""); setRatingInput(5);}} className="bg-slate-200 px-8 py-4 rounded-2xl font-black text-xs">إلغاء التعديل</button>}
-                        <button onClick={handleReviewAction} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-xs flex-1">{isEditingReview ? 'تحديث التقييم' : 'نشر التقييم'}</button>
+                        <button onClick={handleReviewAction} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-xs flex-1 shadow-lg active:scale-95 transition-all">{isEditingReview ? 'تحديث التقييم' : 'نشر التقييم'}</button>
                     </div>
                  </div>
 
                  <div className="grid md:grid-cols-2 gap-6 pb-20">
-                    {reviews.map((r) => (
+                    {reviews.length > 0 ? reviews.map((r) => (
                         <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-3">
                             <div className="flex gap-4">
-                                <img src={r.userPhoto} className="w-12 h-12 rounded-2xl" alt=""/>
+                                <img src={r.userPhoto} className="w-12 h-12 rounded-2xl object-cover" alt=""/>
                                 <div className="flex-1 text-right">
                                     <div className="flex justify-between items-center">
                                         <div className="flex text-yellow-400">{[...Array(r.rating)].map((_, idx) => <Star key={idx} size={10} fill="currentColor"/>)}</div>
@@ -633,7 +657,9 @@ const FutureStore = () => {
                                 </div>
                             )}
                         </div>
-                    ))}
+                    )) : (
+                        <div className="col-span-full py-10 text-center text-slate-400 font-bold">لا توجد تقييمات لهذا المنتج حتى الآن.</div>
+                    )}
                  </div>
               </div>
             </motion.div>
