@@ -4,7 +4,7 @@ import {
   Zap, ShoppingBag, ChevronRight, Plus, Minus, User, Settings, Package, 
   MapPin, Phone, Send, Info, CheckCircle, ShieldCheck, Edit3, Search,
   Bell, Heart, Layout, Filter, ArrowRight, Home, Menu, RefreshCw, Eye, Check, CheckCheck,
-  Truck, Receipt, CreditCard as CardIcon, Image as ImageIcon, DollarSign, Coins
+  Truck, Receipt, CreditCard as CardIcon, Image as ImageIcon, DollarSign, Coins, Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -769,12 +769,39 @@ const FutureStore = () => {
                       <p className="text-slate-500 text-sm leading-relaxed font-bold">{selectedProduct.desc || "لا يوجد وصف تقني."}</p>
                     </div>
 
+                    {/* التعديل الجمالي لعرض بيانات الدفع */}
                     <div className="bg-white p-6 rounded-[2.5rem] border-2 border-blue-50 space-y-4">
-                      <h4 className="font-black text-[10px] text-slate-400 uppercase text-center">طرق الدفع المتوفرة</h4>
-                      <div className="flex justify-center gap-4">
-                        {selectedProduct.paymentMethods?.kuraimi && <span className="px-4 py-2 bg-slate-100 rounded-xl font-black text-[10px]">الكريمي</span>}
-                        {selectedProduct.paymentMethods?.qutaibi && <span className="px-4 py-2 bg-slate-100 rounded-xl font-black text-[10px]">القطيبي</span>}
-                        {selectedProduct.paymentMethods?.paypal && <span className="px-4 py-2 bg-slate-100 rounded-xl font-black text-[10px]">PayPal</span>}
+                      <h4 className="font-black text-[10px] text-slate-400 uppercase text-center flex items-center justify-center gap-2">
+                        <CreditCard size={14}/> طرق الدفع وبيانات التحويل
+                      </h4>
+                      <div className="grid grid-cols-1 gap-3">
+                        {selectedProduct.paymentMethods?.kuraimi && (
+                          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex justify-between items-center group transition-all">
+                             <div className="text-right">
+                               <p className="text-[9px] font-black text-blue-600 uppercase">بنك الكريمي</p>
+                               <p className="font-black text-xs text-slate-700 tracking-wider">{selectedProduct.paymentDetails?.kuraimi || 'تواصل مع التاجر'}</p>
+                             </div>
+                             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-blue-600 shadow-sm"><CardIcon size={16}/></div>
+                          </div>
+                        )}
+                        {selectedProduct.paymentMethods?.qutaibi && (
+                          <div className="bg-green-50 p-4 rounded-2xl border border-green-100 flex justify-between items-center transition-all">
+                             <div className="text-right">
+                               <p className="text-[9px] font-black text-green-600 uppercase">بنك القطيبي</p>
+                               <p className="font-black text-xs text-slate-700 tracking-wider">{selectedProduct.paymentDetails?.qutaibi || 'تواصل مع التاجر'}</p>
+                             </div>
+                             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-green-600 shadow-sm"><Coins size={16}/></div>
+                          </div>
+                        )}
+                        {selectedProduct.paymentMethods?.paypal && (
+                          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex justify-between items-center transition-all">
+                             <div className="text-right">
+                               <p className="text-[9px] font-black text-slate-400 uppercase">PayPal</p>
+                               <p className="font-black text-xs text-slate-700">{selectedProduct.paymentDetails?.paypal || 'تواصل مع التاجر'}</p>
+                             </div>
+                             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-slate-600 shadow-sm"><Send size={16}/></div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -785,7 +812,7 @@ const FutureStore = () => {
                 </div>
               </div>
 
-              {/* التقييمات كما هي */}
+              {/* التقييمات */}
               <div className="mt-16 pt-10 border-t border-slate-100 space-y-8 text-right">
                  <h3 className="text-2xl font-black">تقييمات العملاء الموثقة</h3>
                  <div className="bg-slate-50 p-8 rounded-[3rem] space-y-4">
@@ -826,6 +853,6 @@ const FutureStore = () => {
       <footer className="mt-20 py-10 text-center border-t border-slate-100 opacity-50"><span className="font-black text-xs tracking-widest text-slate-900 uppercase">Future Store Yemen © 2026</span></footer>
     </div>
   );
-};
+}; 
 
 export default FutureStore;
